@@ -91,15 +91,15 @@ async function notifyActiveTab(msg: Msg, fallbackTitle: string, fallbackBody: st
 async function openWebReportPage(runId: string) {
   const { [APP_ORIGIN_KEY]: origin } = await chrome.storage.local.get(APP_ORIGIN_KEY);
   const base = (origin as string) || "http://localhost:5173";
-  const url = `${base}/report?runId=${encodeURIComponent(runId)}`;
+  const url = ${base}/report?runId=${encodeURIComponent(runId)};
   await chrome.tabs.create({ url });
 }
 
 function titleForBlock(index: number, total: number, b: { type: string; topic?: string }) {
-  const base = `Block ${index + 1}/${total}`;
-  if (b.type === "work") return `${base} · Work${b.topic ? `: ${b.topic}` : ""}`;
-  if (b.type === "break") return `${base} · Break`;
-  return `${base} · Dynamic${b.topic ? `: ${b.topic}` : ""}`;
+  const base = Block ${index + 1}/${total};
+  if (b.type === "work") return ${base} · Work${b.topic ? `: ${b.topic} : ""}`;
+  if (b.type === "break") return ${base} · Break;
+  return ${base} · Dynamic${b.topic ? `: ${b.topic} : ""}`;
 }
 
 function ensureReport(plan: SessionPlan, runId: string): SessionReport {
@@ -179,22 +179,24 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const nextIndex = currentIndex + 1;
   const isLast = nextIndex >= plan.blocks.length;
 
-  // ✅ FINAL BLOCK: store report + show feedback modal (final mode)
+  // FIX: FINAL BLOCK - stay in awaiting_feedback until user submits reflection.
+  // Previously we saved the report and set status to "completed" immediately, which caused
+  // SUBMIT_BLOCK_FEEDBACK to reject with "Not awaiting feedback" and the last reflection was lost.
   if (isLast) {
-    const finalReport = { ...report, endedAt: now() };
-
-    await chrome.storage.local.set({
-      [REPORT_PREFIX + s.runId]: finalReport,
-      [LATEST_REPORT_KEY]: s.runId,
-    });
-
-    await setState({
-      status: "completed",
+    const awaiting: SessionRuntimeState = {
+      status: "awaiting_feedback",
       runId: s.runId,
       origin: s.origin,
       plan,
-      report: finalReport,
-    } as any);
+      nextIndex: plan.blocks.length, // marks "final" (no next block) - used in SUBMIT_BLOCK_FEEDBACK
+      report,
+      endedBlock: endedReportBlock,
+      endedBlockTitle: endedTitle,
+      nextBlockTitle: "Session complete ✅",
+      nextBlockNeedsTopic: false,
+    };
+
+    await setState(awaiting);
 
     await notifyActiveTab(
       {
@@ -282,7 +284,7 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
           nextIndex: 0, // we will start block 0 after user chooses topic
           report,
           endedBlock: {
-            id: "__start__",
+            id: "_start_",
             type: "dynamic" as any,
             minutes: 0,
             topic: undefined,
@@ -301,7 +303,7 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
             type: "SHOW_FEEDBACK_MODAL",
             payload: {
               endedTitle: "Session starting",
-              nextTitle: `Choose focus for: ${firstTitle}`,
+              nextTitle: Choose focus for: ${firstTitle},
               nextNeedsTopic: true,
               isFinal: false,
               runId,
@@ -374,7 +376,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
       const reflection = String(msg.payload?.reflection ?? "").trim();
       const nextTopic = String(msg.payload?.nextTopic ?? "").trim();
 
-      const isStartPrompt = (s as any).endedBlock?.id === "__start__";
+      const isStartPrompt = (s as any).endedBlock?.id === "_start_";
 
       // ✅ Start prompt: reflection is NOT required (we only need nextTopic)
       if (!isStartPrompt && !reflection) {
@@ -393,21 +395,48 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
         blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], reflection };
       }
 
-      let plan = (s as any).plan as SessionPlan;
+      const nextIndex = (s as any).nextIndex as number;
+      const plan = (s as any).plan as SessionPlan;
+      const isFinalBlock = nextIndex >= plan.blocks.length;
+
+      // FIX: Final block - save report with reflection, set completed, don't call startBlock.
+      // When nextIndex >= plan.blocks.length there is no next block; we save the report
+      // (including the reflection we just attached) and transition to completed.
+      if (isFinalBlock) {
+        const finalReport: SessionReport = {
+          ...(s as any).report,
+          blocks,
+          endedAt: now(),
+        };
+        await chrome.storage.local.set({
+          [REPORT_PREFIX + (s as any).runId]: finalReport,
+          [LATEST_REPORT_KEY]: (s as any).runId,
+        });
+        await setState({
+          status: "completed",
+          runId: (s as any).runId,
+          origin: (s as any).origin,
+          plan,
+          report: finalReport,
+        } as any);
+        sendResponse({ ok: true });
+        return;
+      }
 
       // if next is dynamic, set the topic on that next block
+      let planWithTopic = plan;
       if ((s as any).nextBlockNeedsTopic) {
-        plan = {
+        planWithTopic = {
           ...plan,
           blocks: plan.blocks.map((b, i) =>
-            i === (s as any).nextIndex ? { ...b, topic: nextTopic } : b
+            i === nextIndex ? { ...b, topic: nextTopic } : b
           ),
         };
       }
 
       const report: SessionReport = { ...(s as any).report, blocks };
 
-      await startBlock((s as any).runId, (s as any).origin, plan, (s as any).nextIndex, report);
+      await startBlock((s as any).runId, (s as any).origin, planWithTopic, nextIndex, report);
       sendResponse({ ok: true });
       return;
     }
