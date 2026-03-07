@@ -24,7 +24,7 @@ export default function ReportPage() {
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    setErr("null");
+    setErr(null);
 
     // If you open this in a non-Chrome env, show a nice error instead of crashing
     if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) {
