@@ -91,15 +91,15 @@ async function notifyActiveTab(msg: Msg, fallbackTitle: string, fallbackBody: st
 async function openWebReportPage(runId: string) {
   const { [APP_ORIGIN_KEY]: origin } = await chrome.storage.local.get(APP_ORIGIN_KEY);
   const base = (origin as string) || "http://localhost:5173";
-  const url = ${base}/report?runId=${encodeURIComponent(runId)};
+  const url = `${base}/report?runId=${encodeURIComponent(runId)}`;
   await chrome.tabs.create({ url });
 }
 
 function titleForBlock(index: number, total: number, b: { type: string; topic?: string }) {
-  const base = Block ${index + 1}/${total};
-  if (b.type === "work") return ${base} · Work${b.topic ? `: ${b.topic} : ""}`;
-  if (b.type === "break") return ${base} · Break;
-  return ${base} · Dynamic${b.topic ? `: ${b.topic} : ""}`;
+  const base = `Block ${index + 1}/${total}`;
+  if (b.type === "work") return `${base} · Work${b.topic ? `: ${b.topic}` : ""}`;
+  if (b.type === "break") return `${base} · Break`;
+  return `${base} · Dynamic${b.topic ? `: ${b.topic}` : ""}`;
 }
 
 function ensureReport(plan: SessionPlan, runId: string): SessionReport {
@@ -303,7 +303,7 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
             type: "SHOW_FEEDBACK_MODAL",
             payload: {
               endedTitle: "Session starting",
-              nextTitle: Choose focus for: ${firstTitle},
+              nextTitle: `Choose focus for: ${firstTitle}`,
               nextNeedsTopic: true,
               isFinal: false,
               runId,
@@ -342,6 +342,12 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
 
       const res = await chrome.storage.local.get(REPORT_PREFIX + latestRunId);
       sendResponse({ ok: true, report: res[REPORT_PREFIX + latestRunId] ?? null });
+      return;
+    }
+
+    if (msg?.type === "GET_STATE") {
+      const state = await getState();
+      sendResponse({ ok: true, state });
       return;
     }
 
