@@ -43,8 +43,7 @@ function renderRunning(title: string, endsAt: number, subtitle?: string) {
   root.innerHTML = "";
 
   const card = document.createElement("div");
-  card.style.cssText =
-    `background:${LIGHT.bg};color:${LIGHT.text};border:1px solid ${LIGHT.border};border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,0.2);padding:12px;`;
+  card.style.cssText = `background:${LIGHT.bg};color:${LIGHT.text};border:1px solid ${LIGHT.border};border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,0.2);padding:12px;`;
 
   card.innerHTML = `
     <div style="font-weight:800;margin-bottom:6px;color:${LIGHT.text}">${title}</div>
@@ -57,8 +56,7 @@ function renderRunning(title: string, endsAt: number, subtitle?: string) {
 
   const btn = document.createElement("button");
   btn.textContent = "Dismiss";
-  btn.style.cssText =
-    `margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid ${LIGHT.border};background:${LIGHT.bg};color:${LIGHT.text};cursor:pointer;`;
+  btn.style.cssText = `margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid ${LIGHT.border};background:${LIGHT.bg};color:${LIGHT.text};cursor:pointer;`;
   btn.onclick = () => (root.innerHTML = "");
 
   card.appendChild(btn);
@@ -114,8 +112,7 @@ function renderFeedbackModal(
     "position:absolute;inset:0;background:rgba(0,0,0,0.45);";
 
   const panel = document.createElement("div");
-  panel.style.cssText =
-    `position:relative;width:min(560px,92vw);background:${LIGHT.bg};color:${LIGHT.text};border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.35);padding:18px;`;
+  panel.style.cssText = `position:relative;width:min(560px,92vw);background:${LIGHT.bg};color:${LIGHT.text};border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.35);padding:18px;`;
 
   panel.innerHTML = `
     <div style="font-weight:900;font-size:18px;margin-bottom:6px;color:${LIGHT.text}">
@@ -148,8 +145,7 @@ function renderFeedbackModal(
   reflection.rows = 4;
   reflection.placeholder =
     "Describe the main things you actually did in practice during this block, briefly explain: which of the goals you achieved for this block? or what distracted you?";
-  reflection.style.cssText =
-    `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;resize:vertical;background:${LIGHT.bg};color:${LIGHT.text};`;
+  reflection.style.cssText = `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;resize:vertical;background:${LIGHT.bg};color:${LIGHT.text};`;
 
   if (!isStartPrompt) {
     const reflectionLabel = document.createElement("div");
@@ -178,8 +174,7 @@ function renderFeedbackModal(
     topicInput.placeholder = isStartPrompt
       ? "What are you focusing on now?"
       : "What are you focusing on next?";
-    topicInput.style.cssText =
-      `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;background:${LIGHT.bg};color:${LIGHT.text};`;
+    topicInput.style.cssText = `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;background:${LIGHT.bg};color:${LIGHT.text};`;
     panel.appendChild(topicInput);
   }
 
@@ -188,12 +183,6 @@ function renderFeedbackModal(
   const row = document.createElement("div");
   row.style.cssText =
     "display:flex;gap:10px;justify-content:flex-end;margin-top:14px;";
-
-  const cancel = document.createElement("button");
-  cancel.textContent = "Not now";
-  cancel.style.cssText =
-    `padding:10px 12px;border-radius:12px;border:1px solid ${LIGHT.border};background:${LIGHT.bg};color:${LIGHT.text};cursor:pointer;`;
-  cancel.onclick = () => closeModal();
 
   const submit = document.createElement("button");
   submit.textContent = isStartPrompt
@@ -248,7 +237,6 @@ function renderFeedbackModal(
     closeModal();
   };
 
-  row.appendChild(cancel);
   row.appendChild(submit);
 
   panel.appendChild(row);
@@ -264,7 +252,10 @@ function renderFeedbackModal(
 // Auto-detect: page can request extension ID via postMessage (for session-web)
 window.addEventListener("message", (e) => {
   if (e.data?.type === "SESSION_BLOCKS_GET_ID") {
-    window.postMessage({ type: "SESSION_BLOCKS_ID", id: chrome.runtime.id }, "*");
+    window.postMessage(
+      { type: "SESSION_BLOCKS_ID", id: chrome.runtime.id },
+      "*",
+    );
   }
 });
 
