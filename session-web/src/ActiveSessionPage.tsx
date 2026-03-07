@@ -21,7 +21,7 @@ export default function ActiveSessionPage({ onSessionEnded }: Props) {
 
   return (
     <div style={{ padding: "2rem", textAlign: "center" }}>
-      <h2>An active session exists</h2>
+      <h2>Active session exists</h2>
       <p>The planner will be restored when the session ends.</p>
     </div>
   );
