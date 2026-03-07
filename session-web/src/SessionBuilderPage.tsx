@@ -20,6 +20,10 @@ import {
   Snackbar,
   Alert,
   InputAdornment,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -27,7 +31,8 @@ import ArrowUpwardIcon from "@mui/icons-material/ArrowUpward";
 import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
-import { EXTENSION_ID } from "./config";
+import SettingsIcon from "@mui/icons-material/Settings";
+import { getExtensionId, getExtensionIdAsync, setExtensionId } from "./config";
 
 /** ===== Types (shared contract with extension) ===== */
 export type BlockType = "work" | "break" | "dynamic";
@@ -106,6 +111,9 @@ export default function App() {
     msg: string;
   } | null>(null);
 
+  const [extensionDialogOpen, setExtensionDialogOpen] = useState(false);
+  const [extensionIdInput, setExtensionIdInput] = useState(getExtensionId());
+
   const total = useMemo(() => totalMinutes(blocks), [blocks]);
 
   function addBlock(type: BlockType) {
@@ -172,7 +180,7 @@ export default function App() {
     localStorage.setItem("session_plan_v1", JSON.stringify(plan));
   }
 
-  function startSession() {
+  async function startSession() {
     const err = validatePlan();
     if (err) {
       setToast({ kind: "error", msg: err });
@@ -200,19 +208,24 @@ export default function App() {
 
     // NOTE: This is ready for multi-block. If your extension still expects the old payload,
     // we’ll update the extension next to accept plan.blocks.
-    chrome.runtime.sendMessage(EXTENSION_ID, msg, (res) => {
-      if (chrome.runtime.lastError) {
+    const extId = await getExtensionIdAsync();
+    chrome.runtime.sendMessage(extId, msg, (_res) => {
+      const errMsg = chrome.runtime.lastError?.message;
+      if (errMsg) {
+        const isConnectionError = errMsg.includes("Receiving end does not exist") || errMsg.includes("Could not establish connection");
         setToast({
           kind: "error",
-          msg: chrome.runtime.lastError.message ?? "Unknown extension error",
+          msg: isConnectionError
+            ? "Extension not found. Click the gear icon and paste your Extension ID from chrome://extensions"
+            : errMsg,
         });
+        if (isConnectionError) setExtensionDialogOpen(true);
         return;
       }
       setToast({
         kind: "success",
         msg: "Session started. Extension is running.",
       });
-      console.log("START_SESSION response:", res);
     });
   }
 
@@ -251,6 +264,11 @@ export default function App() {
           </Stack>
 
           <Stack direction="row" spacing={1.25} alignItems="center">
+            <Tooltip title="Extension ID (from chrome://extensions)">
+              <IconButton onClick={() => { setExtensionIdInput(getExtensionId()); setExtensionDialogOpen(true); }}>
+                <SettingsIcon />
+              </IconButton>
+            </Tooltip>
             <Chip label={`Total: ${formatTotal(total)}`} variant="outlined" />
             <Button
               startIcon={<PlayArrowIcon />}
@@ -520,8 +538,37 @@ export default function App() {
           >
             {toast.msg}
           </Alert>
-        ) : null}
+        ) : undefined}
       </Snackbar>
+
+      <Dialog open={extensionDialogOpen} onClose={() => setExtensionDialogOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle>Extension ID</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
+            Copy the Extension ID from chrome://extensions (click the extension, copy the ID under the name).
+          </Typography>
+          <TextField
+            fullWidth
+            label="Extension ID"
+            value={extensionIdInput}
+            onChange={(e) => setExtensionIdInput(e.target.value)}
+            placeholder="e.g. abcdefghijklmnop..."
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setExtensionDialogOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              setExtensionId(extensionIdInput);
+              setExtensionDialogOpen(false);
+              setToast({ kind: "success", msg: "Extension ID saved." });
+            }}
+          >
+            Save
+          </Button>
+        </DialogActions>
+      </Dialog>
     </>
   );
 }

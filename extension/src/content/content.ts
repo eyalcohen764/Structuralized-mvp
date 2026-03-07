@@ -3,6 +3,14 @@ import type { Msg } from "../shared";
 const OVERLAY_ID = "session-ext-overlay-root";
 const MODAL_ID = "session-ext-modal-root";
 
+/** Always light theme - prevents inheriting dark styles from the page */
+const LIGHT = {
+  bg: "#fff",
+  text: "#111",
+  textMuted: "rgba(0,0,0,0.75)",
+  border: "rgba(0,0,0,0.2)",
+};
+
 function ensureOverlayRoot() {
   let root = document.getElementById(OVERLAY_ID) as HTMLDivElement | null;
   if (root) return root;
@@ -15,6 +23,7 @@ function ensureOverlayRoot() {
   root.style.right = "16px";
   root.style.width = "360px";
   root.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  root.style.colorScheme = "light";
   document.documentElement.appendChild(root);
   return root;
 }
@@ -35,21 +44,21 @@ function renderRunning(title: string, endsAt: number, subtitle?: string) {
 
   const card = document.createElement("div");
   card.style.cssText =
-    "background:white;border:1px solid rgba(0,0,0,0.15);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,0.2);padding:12px;";
+    `background:${LIGHT.bg};color:${LIGHT.text};border:1px solid ${LIGHT.border};border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,0.2);padding:12px;`;
 
   card.innerHTML = `
-    <div style="font-weight:800;margin-bottom:6px;">${title}</div>
-    ${subtitle ? `<div style="font-size:13px;opacity:0.75;margin-bottom:6px;">${subtitle}</div>` : ""}
-    <div style="font-size:14px;opacity:0.85;margin-bottom:10px;">
-      Ends at <b>${formatTime(endsAt)}</b>
+    <div style="font-weight:800;margin-bottom:6px;color:${LIGHT.text}">${title}</div>
+    ${subtitle ? `<div style="font-size:13px;color:${LIGHT.textMuted};margin-bottom:6px">${subtitle}</div>` : ""}
+    <div style="font-size:14px;color:${LIGHT.textMuted};margin-bottom:10px">
+      Ends at <b style="color:${LIGHT.text}">${formatTime(endsAt)}</b>
     </div>
-    <div style="font-size:12px;opacity:0.65;">This will auto-hide in ~20 seconds.</div>
+    <div style="font-size:12px;color:${LIGHT.textMuted}">This will auto-hide in ~20 seconds.</div>
   `;
 
   const btn = document.createElement("button");
   btn.textContent = "Dismiss";
   btn.style.cssText =
-    "margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid rgba(0,0,0,0.2);background:white;cursor:pointer;";
+    `margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid ${LIGHT.border};background:${LIGHT.bg};color:${LIGHT.text};cursor:pointer;`;
   btn.onclick = () => (root.innerHTML = "");
 
   card.appendChild(btn);
@@ -75,6 +84,7 @@ function ensureModalRoot() {
   root.style.alignItems = "center";
   root.style.justifyContent = "center";
   root.style.fontFamily = "system-ui, -apple-system, Segoe UI, Roboto, Arial";
+  root.style.colorScheme = "light";
   document.documentElement.appendChild(root);
   return root;
 }
@@ -105,10 +115,10 @@ function renderFeedbackModal(
 
   const panel = document.createElement("div");
   panel.style.cssText =
-    "position:relative;width:min(560px,92vw);background:#fff;border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.35);padding:18px;";
+    `position:relative;width:min(560px,92vw);background:${LIGHT.bg};color:${LIGHT.text};border-radius:16px;box-shadow:0 20px 60px rgba(0,0,0,0.35);padding:18px;`;
 
   panel.innerHTML = `
-    <div style="font-weight:900;font-size:18px;margin-bottom:6px;">
+    <div style="font-weight:900;font-size:18px;margin-bottom:6px;color:${LIGHT.text}">
       ${
         isStartPrompt
           ? "Before we begin"
@@ -117,9 +127,9 @@ function renderFeedbackModal(
             : "Block finished"
       }
     </div>
-    <div style="font-size:14px;opacity:0.85;margin-bottom:14px;">
-      <div><b>${isStartPrompt ? "Starting:" : "Just ended:"}</b> ${endedTitle}</div>
-      <div style="margin-top:4px;"><b>${isFinal ? "Status:" : "Next:"}</b> ${nextTitle}</div>
+    <div style="font-size:14px;color:${LIGHT.textMuted};margin-bottom:14px">
+      <div><b style="color:${LIGHT.text}">${isStartPrompt ? "Starting:" : "Just ended:"}</b> ${endedTitle}</div>
+      <div style="margin-top:4px"><b style="color:${LIGHT.text}">${isFinal ? "Status:" : "Next:"}</b> ${nextTitle}</div>
     </div>
   `;
 
@@ -139,11 +149,11 @@ function renderFeedbackModal(
   reflection.placeholder =
     "Describe the main things you actually did in practice during this block, briefly explain: which of the goals you achieved for this block? or what distracted you?";
   reflection.style.cssText =
-    "width:100%;border-radius:12px;border:1px solid rgba(0,0,0,0.2);padding:10px;font-size:14px;resize:vertical;";
+    `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;resize:vertical;background:${LIGHT.bg};color:${LIGHT.text};`;
 
   if (!isStartPrompt) {
     const reflectionLabel = document.createElement("div");
-    reflectionLabel.style.cssText = "font-weight:700;margin-bottom:6px;";
+    reflectionLabel.style.cssText = `font-weight:700;margin-bottom:6px;color:${LIGHT.text}`;
     reflectionLabel.textContent = "Quick reflection";
     panel.appendChild(reflectionLabel);
     panel.appendChild(reflection);
@@ -158,7 +168,7 @@ function renderFeedbackModal(
 
   if (shouldAskTopic) {
     const label = document.createElement("div");
-    label.style.cssText = "margin-top:12px;font-weight:700;margin-bottom:6px;";
+    label.style.cssText = `margin-top:12px;font-weight:700;margin-bottom:6px;color:${LIGHT.text}`;
     label.textContent = isStartPrompt
       ? "What is the focus of this first block?"
       : "Dynamic focus for the next block";
@@ -169,7 +179,7 @@ function renderFeedbackModal(
       ? "What are you focusing on now?"
       : "What are you focusing on next?";
     topicInput.style.cssText =
-      "width:100%;border-radius:12px;border:1px solid rgba(0,0,0,0.2);padding:10px;font-size:14px;";
+      `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;background:${LIGHT.bg};color:${LIGHT.text};`;
     panel.appendChild(topicInput);
   }
 
@@ -182,7 +192,7 @@ function renderFeedbackModal(
   const cancel = document.createElement("button");
   cancel.textContent = "Not now";
   cancel.style.cssText =
-    "padding:10px 12px;border-radius:12px;border:1px solid rgba(0,0,0,0.2);background:white;cursor:pointer;";
+    `padding:10px 12px;border-radius:12px;border:1px solid ${LIGHT.border};background:${LIGHT.bg};color:${LIGHT.text};cursor:pointer;`;
   cancel.onclick = () => closeModal();
 
   const submit = document.createElement("button");
@@ -192,7 +202,7 @@ function renderFeedbackModal(
       ? "Complete"
       : "Continue";
   submit.style.cssText =
-    "padding:10px 12px;border-radius:12px;border:1px solid rgba(0,0,0,0.2);background:#111;color:white;cursor:pointer;font-weight:800;";
+    "padding:10px 12px;border-radius:12px;border:1px solid rgba(0,0,0,0.2);background:#111;color:#fff;cursor:pointer;font-weight:800;";
 
   submit.onclick = async () => {
     setError("");
@@ -250,6 +260,13 @@ function renderFeedbackModal(
   if (isStartPrompt && topicInput) topicInput.focus();
   else if (!isStartPrompt) reflection.focus();
 }
+
+// Auto-detect: page can request extension ID via postMessage (for session-web)
+window.addEventListener("message", (e) => {
+  if (e.data?.type === "SESSION_BLOCKS_GET_ID") {
+    window.postMessage({ type: "SESSION_BLOCKS_ID", id: chrome.runtime.id }, "*");
+  }
+});
 
 chrome.runtime.onMessage.addListener((msg: Msg) => {
   if (msg.type === "SHOW_RUNNING_OVERLAY") {

@@ -11,7 +11,7 @@ import {
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { Link as RouterLink } from "react-router-dom";
-import { EXTENSION_ID } from "./config";
+import { getExtensionIdAsync } from "./config";
 
 function runIdFromUrl(): string | null {
   const url = new URL(window.location.href);
@@ -34,10 +34,11 @@ export default function ReportPage() {
       return;
     }
 
-    chrome.runtime.sendMessage(
-      EXTENSION_ID,
-      { type: "GET_REPORT", payload: { runId: runId ?? undefined } },
-      (res) => {
+    getExtensionIdAsync().then((extId) => {
+      chrome.runtime.sendMessage(
+        extId,
+        { type: "GET_REPORT", payload: { runId: runId ?? undefined } },
+        (res) => {
         const msg = chrome.runtime.lastError?.message;
         if (msg) {
           setErr(msg);
@@ -46,6 +47,7 @@ export default function ReportPage() {
         setReport(res?.report ?? null);
       },
     );
+    });
   }, [runId]);
 
   return (
