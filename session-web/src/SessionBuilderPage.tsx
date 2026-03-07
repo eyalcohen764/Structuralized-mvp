@@ -99,7 +99,14 @@ function formatTotal(mins: number): string {
   return `${h} hr ${m} min`;
 }
 
-const PRESET_MINUTES = [10, 15, 20, 30, 45, 60];
+const PRESET_MINUTES = [10, 15, 20, 30, 45, 60, 75, 90, 105, 120, 135, 150];
+
+function formatPreset(m: number): string {
+  if (m < 60) return `${m}m`;
+  const h = Math.floor(m / 60);
+  const rem = m % 60;
+  return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
+}
 
 export default function App() {
   const [blocks, setBlocks] = useState<SessionBlock[]>([
@@ -206,13 +213,13 @@ export default function App() {
       },
     };
 
-    // NOTE: This is ready for multi-block. If your extension still expects the old payload,
-    // we’ll update the extension next to accept plan.blocks.
     const extId = await getExtensionIdAsync();
     chrome.runtime.sendMessage(extId, msg, (_res) => {
       const errMsg = chrome.runtime.lastError?.message;
       if (errMsg) {
-        const isConnectionError = errMsg.includes("Receiving end does not exist") || errMsg.includes("Could not establish connection");
+        const isConnectionError =
+          errMsg.includes("Receiving end does not exist") ||
+          errMsg.includes("Could not establish connection");
         setToast({
           kind: "error",
           msg: isConnectionError
@@ -265,7 +272,12 @@ export default function App() {
 
           <Stack direction="row" spacing={1.25} alignItems="center">
             <Tooltip title="Extension ID (from chrome://extensions)">
-              <IconButton onClick={() => { setExtensionIdInput(getExtensionId()); setExtensionDialogOpen(true); }}>
+              <IconButton
+                onClick={() => {
+                  setExtensionIdInput(getExtensionId());
+                  setExtensionDialogOpen(true);
+                }}
+              >
                 <SettingsIcon />
               </IconButton>
             </Tooltip>
@@ -313,15 +325,20 @@ export default function App() {
               >
                 Add Break
               </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={() => addBlock("dynamic")}
-                sx={{ borderRadius: 2, textTransform: "none" }}
+              <Tooltip
+                title="A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
+                slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
               >
-                Add Dynamic
-              </Button>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  startIcon={<AddIcon />}
+                  onClick={() => addBlock("dynamic")}
+                  sx={{ borderRadius: 2, textTransform: "none" }}
+                >
+                  Add Dynamic
+                </Button>
+              </Tooltip>
 
               <Tooltip title="Reset builder">
                 <IconButton onClick={reset}>
@@ -348,11 +365,21 @@ export default function App() {
                       size="small"
                       variant="outlined"
                     />
-                    <Chip
-                      label={prettyType(b.type)}
-                      size="small"
-                      color={typeColor(b.type)}
-                    />
+                    <Tooltip
+                      title={
+                        b.type === "dynamic"
+                          ? "A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
+                          : ""
+                      }
+                      disableHoverListener={b.type !== "dynamic"}
+                      slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
+                    >
+                      <Chip
+                        label={prettyType(b.type)}
+                        size="small"
+                        color={typeColor(b.type)}
+                      />
+                    </Tooltip>
                     <Typography
                       variant="subtitle2"
                       sx={{ fontWeight: 600, ml: 0.2 }}
@@ -363,7 +390,7 @@ export default function App() {
                           : "Untitled work"
                         : b.type === "break"
                           ? "Recovery"
-                          : "The topic is decided when the block actually starts"}
+                          : " topic will be decided only when the block actually starts"}
                     </Typography>
 
                     <Stack direction="row" spacing={0.5} sx={{ ml: "auto" }}>
@@ -435,32 +462,72 @@ export default function App() {
                       >
                         Break
                       </ToggleButton>
-                      <ToggleButton
-                        value="dynamic"
-                        sx={{ textTransform: "none", borderRadius: 2 }}
+                      <Tooltip
+                        title="A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
+                        slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
                       >
-                        Dynamic
-                      </ToggleButton>
+                        <ToggleButton
+                          value="dynamic"
+                          sx={{ textTransform: "none", borderRadius: 2 }}
+                        >
+                          Dynamic
+                        </ToggleButton>
+                      </Tooltip>
                     </ToggleButtonGroup>
 
-                    {/* Minutes (free input) */}
-                    <TextField
-                      label="Minutes"
-                      type="number"
-                      value={b.minutes}
-                      onChange={(e) =>
-                        updateBlock(b.id, { minutes: Number(e.target.value) })
-                      }
-                      inputProps={{ min: 1, max: 1440, step: 1 }}
-                      size="small"
-                      sx={{ width: { xs: "100%", sm: 160 } }}
-                      InputProps={{
-                        endAdornment: (
-                          <InputAdornment position="end">min</InputAdornment>
-                        ),
-                      }}
-                      helperText="Any number (1–1440)"
-                    />
+                    {/* Duration (Hours & Minutes) */}
+                    <Stack
+                      direction="row"
+                      spacing={1}
+                      sx={{ width: { xs: "100%", sm: "auto" } }}
+                    >
+                      <TextField
+                        label="Hours"
+                        type="number"
+                        value={Math.floor((b.minutes || 0) / 60).toString()}
+                        onChange={(e) => {
+                          const newHours =
+                            e.target.value === "" ? 0 : Number(e.target.value);
+                          const currentMins = (b.minutes || 0) % 60;
+                          updateBlock(b.id, {
+                            minutes: newHours * 60 + currentMins,
+                          });
+                        }}
+                        inputProps={{ min: 0, max: 24, step: 1 }}
+                        size="small"
+                        sx={{ width: { xs: "50%", sm: 110 } }}
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">h</InputAdornment>
+                          ),
+                        }}
+                        helperText="0–24"
+                      />
+                      <TextField
+                        label="Minutes"
+                        type="number"
+                        value={((b.minutes || 0) % 60).toString()}
+                        onChange={(e) => {
+                          const newMins =
+                            e.target.value === "" ? 0 : Number(e.target.value);
+                          const currentHours = Math.floor(
+                            (b.minutes || 0) / 60,
+                          );
+                          updateBlock(b.id, {
+                            minutes: currentHours * 60 + newMins,
+                          });
+                        }}
+                        inputProps={{ min: 0, max: 59, step: 1 }}
+                        size="small"
+                        sx={{ width: { xs: "50%", sm: 110 } }}
+                        InputProps={{
+                          endAdornment: (
+                            <InputAdornment position="end">m</InputAdornment>
+                          ),
+                        }}
+                        helperText="0–59"
+                      />
+                    </Stack>
 
                     {/* Topic (free input) only for Work */}
                     {b.type === "work" ? (
@@ -504,16 +571,16 @@ export default function App() {
                       variant="caption"
                       sx={{ color: "text.secondary" }}
                     >
-                      Quick minutes:
+                      Quick timing:
                     </Typography>
                     {PRESET_MINUTES.map((m) => (
                       <Chip
                         key={m}
-                        label={`${m}`}
+                        label={formatPreset(m)}
                         size="small"
                         variant={b.minutes === m ? "filled" : "outlined"}
                         onClick={() => updateBlock(b.id, { minutes: m })}
-                        sx={{ cursor: "pointer" }}
+                        sx={{ cursor: "pointer", minWidth: 44 }}
                       />
                     ))}
                   </Stack>
@@ -541,11 +608,17 @@ export default function App() {
         ) : undefined}
       </Snackbar>
 
-      <Dialog open={extensionDialogOpen} onClose={() => setExtensionDialogOpen(false)} maxWidth="sm" fullWidth>
+      <Dialog
+        open={extensionDialogOpen}
+        onClose={() => setExtensionDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+      >
         <DialogTitle>Extension ID</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-            Copy the Extension ID from chrome://extensions (click the extension, copy the ID under the name).
+            Copy the Extension ID from chrome://extensions (click the extension,
+            copy the ID under the name).
           </Typography>
           <TextField
             fullWidth
