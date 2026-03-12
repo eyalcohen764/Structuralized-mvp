@@ -271,6 +271,23 @@ export default function App() {
           </Stack>
 
           <Stack direction="row" spacing={1.25} alignItems="center">
+            <Button
+              component="a"
+              href="http://localhost:5173"
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="outlined"
+              size="medium"
+              sx={{
+                textTransform: "none",
+                fontWeight: 600,
+                fontSize: "0.95rem",
+                borderRadius: 2,
+                px: 2,
+              }}
+            >
+              How to use the system
+            </Button>
             <Tooltip title="Extension ID (from chrome://extensions)">
               <IconButton
                 onClick={() => {

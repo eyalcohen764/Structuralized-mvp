@@ -1,10 +1,14 @@
 # CLAUDE.md
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+Always write VERY clean, Reusable, Readable, Testable, Scalable, Sustainable, Maintainable code, who strictly follows best practices.
+
+- Always use **strict, explicit types** — never `any` / unknown or unsafe casts except when unavoidable.
 
 ## Project Overview
 
 Productivity timer Chrome extension MVP ("Session Blocks") with two parts:
+
 - **extension/** — Chrome MV3 extension: injects overlays on webpages, manages timed focus blocks, captures user reflections
 - **session-web/** — React website (localhost:5173): provides Start UI and Report viewing
 
@@ -13,6 +17,7 @@ Both are independent TypeScript + React 19 + Vite apps (no monorepo workspace li
 ## Build & Development Commands
 
 **Website (session-web/):**
+
 ```bash
 cd session-web && npm install
 npm run dev          # Dev server on http://localhost:5173
@@ -21,6 +26,7 @@ npm run lint         # ESLint (flat config)
 ```
 
 **Extension (extension/):**
+
 ```bash
 cd extension && npm install
 npm run build        # One-time Vite build → dist/
@@ -34,10 +40,12 @@ Load the extension: chrome://extensions → Developer Mode → Load Unpacked →
 ### Communication Flow
 
 Website → Extension (external messaging via `chrome.runtime.sendMessage(EXTENSION_ID, msg)`):
+
 - `START_SESSION` — triggers a timed focus block
 - `GET_REPORT` — fetches the latest session report
 
 Background ↔ Content Script (internal messaging):
+
 - `SHOW_RUNNING_OVERLAY` / `SHOW_DONE_OVERLAY` — background → content
 - `SUBMIT_REFLECTION` — content → background (user's typed reflection)
 
@@ -52,6 +60,7 @@ Background ↔ Content Script (internal messaging):
 ### Extension Build
 
 Vite builds three separate entry points (configured in `extension/vite.config.ts`):
+
 - `background.ts` → `background.js` (service worker)
 - `content.ts` → `content.js` (content script)
 - `runner/index.html` → popup HTML page
@@ -66,3 +75,8 @@ Uses `chrome.storage.local` with versioned keys (e.g., `session_state_v1`). Time
 - React Router v7 for routing in both apps
 - ESLint flat config (session-web only; extension has no linter configured)
 - No test framework is set up in either project
+
+## UI Framework
+
+- We strictly use **Material-UI (MUI)** for all styling and components in both the website and the extension popup.
+- Do NOT use Tailwind CSS, custom CSS files, or inline styles.

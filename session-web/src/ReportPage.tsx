@@ -12,6 +12,45 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { Link as RouterLink } from "react-router-dom";
 import { getExtensionIdAsync } from "./config";
+import type { ReportBlock, SessionReport } from "../../extension/src/shared";
+
+type BlockTimestamp = { displayStart: number; displayEnd: number };
+
+/**
+ * Computes a gapless wall-clock timeline for each block.
+ *
+ * Inter-block overhead (reflection typing, dynamic topic selection) is absorbed
+ * into the preceding block's display end time, so no dead time appears between blocks.
+ *
+ * - Block 0 starts at report.startedAt (absorbs any pre-first-block overhead).
+ * - Block i starts exactly where block i-1 ended (no gaps).
+ * - The last block ends at report.endedAt (or its own endedAt when in-progress).
+ */
+function computeBlockTimestamps(
+  blocks: ReportBlock[],
+  report: SessionReport,
+): BlockTimestamp[] {
+  const result: BlockTimestamp[] = [];
+
+  for (let i = 0; i < blocks.length; i++) {
+    const displayStart = i === 0 ? report.startedAt : result[i - 1].displayEnd;
+    const displayEnd =
+      i < blocks.length - 1
+        ? blocks[i + 1].startedAt
+        : (report.endedAt ?? blocks[i].endedAt);
+    result.push({ displayStart, displayEnd });
+  }
+
+  return result;
+}
+
+function formatTime(epochMs: number): string {
+  return new Date(epochMs).toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
+}
 
 function runIdFromUrl(): string | null {
   const url = new URL(window.location.href);
@@ -20,8 +59,13 @@ function runIdFromUrl(): string | null {
 
 export default function ReportPage() {
   const runId = useMemo(() => runIdFromUrl(), []);
-  const [report, setReport] = useState<any>(null);
+  const [report, setReport] = useState<SessionReport | null>(null);
   const [err, setErr] = useState<string | null>(null);
+
+  const blockTimestamps = useMemo<BlockTimestamp[]>(
+    () => (report ? computeBlockTimestamps(report.blocks, report) : []),
+    [report],
+  );
 
   useEffect(() => {
     setErr(null);
@@ -39,14 +83,14 @@ export default function ReportPage() {
         extId,
         { type: "GET_REPORT", payload: { runId: runId ?? undefined } },
         (res) => {
-        const msg = chrome.runtime.lastError?.message;
-        if (msg) {
-          setErr(msg);
-          return;
-        }
-        setReport(res?.report ?? null);
-      },
-    );
+          const msg = chrome.runtime.lastError?.message;
+          if (msg) {
+            setErr(msg);
+            return;
+          }
+          setReport(res?.report ?? null);
+        },
+      );
     });
   }, [runId]);
 
@@ -115,42 +159,91 @@ export default function ReportPage() {
           <Divider sx={{ mb: 2 }} />
 
           <Stack spacing={1.5}>
-            {(report.blocks ?? []).map((b: any, i: number) => (
-              <Paper
-                key={b.id ?? i}
-                variant="outlined"
-                sx={{ borderRadius: 3, p: 2 }}
-              >
-                <Stack
-                  direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                  sx={{ mb: 1 }}
+            {report.blocks.map((b, i) => {
+              const ts = blockTimestamps[i];
+              return (
+                <Paper
+                  key={b.id ?? i}
+                  variant="outlined"
+                  sx={{ borderRadius: 3, p: 2 }}
                 >
-                  <Typography sx={{ fontWeight: 900 }}>
-                    Block {i + 1} · {String(b.type).toUpperCase()}
-                    {b.topic ? ` · ${b.topic}` : ""}
-                  </Typography>
-                  <Chip
-                    label={`${b.minutes} min`}
-                    size="small"
-                    variant="outlined"
-                  />
-                </Stack>
+                  <Stack
+                    direction="row"
+                    justifyContent="space-between"
+                    alignItems="center"
+                    sx={{ mb: 0.5 }}
+                  >
+                    <Typography sx={{ fontWeight: 900 }}>
+                      Block {i + 1} · {String(b.type).toUpperCase()}
+                      {b.topic ? ` · ${b.topic}` : ""}
+                    </Typography>
+                    <Chip
+                      label={`${b.minutes} min`}
+                      size="small"
+                      variant="outlined"
+                    />
+                  </Stack>
 
-                <Typography
-                  variant="subtitle2"
-                  sx={{ fontWeight: 800, mb: 0.5 }}
-                >
-                  Reflection
-                </Typography>
-                <Typography
-                  sx={{ whiteSpace: "pre-wrap", color: "text.secondary" }}
-                >
-                  {b.reflection ?? "(none)"}
-                </Typography>
-              </Paper>
-            ))}
+                  {ts && (
+                    <Stack
+                      direction="row"
+                      alignItems="center"
+                      spacing={1}
+                      sx={{ mt: 0.5, mb: 1.5 }}
+                    >
+                      <Typography
+                        sx={{
+                          fontFamily: "monospace",
+                          fontSize: "1.2rem",
+                          fontWeight: 500,
+                          color: "text.primary",
+                          opacity: 0.75,
+                          letterSpacing: "0.02em",
+                        }}
+                      >
+                        {formatTime(ts.displayStart)}
+                      </Typography>
+                      <Typography
+                        sx={{
+                          color: "text.disabled",
+                          fontSize: "0.8rem",
+                          lineHeight: 1,
+                          userSelect: "none",
+                        }}
+                      >
+                        →
+                      </Typography>
+                      <Typography
+                        sx={{
+                          fontFamily: "monospace",
+                          fontSize: "1.2rem",
+                          fontWeight: 500,
+                          color: "text.primary",
+                          opacity: 0.75,
+                          letterSpacing: "0.02em",
+                        }}
+                      >
+                        {formatTime(ts.displayEnd)}
+                      </Typography>
+                    </Stack>
+                  )}
+
+                  <Divider sx={{ mb: 1 }} />
+
+                  <Typography
+                    variant="subtitle2"
+                    sx={{ fontWeight: 800, mb: 0.5 }}
+                  >
+                    Reflection
+                  </Typography>
+                  <Typography
+                    sx={{ whiteSpace: "pre-wrap", color: "text.secondary" }}
+                  >
+                    {b.reflection ?? "(none)"}
+                  </Typography>
+                </Paper>
+              );
+            })}
           </Stack>
         </Paper>
       )}

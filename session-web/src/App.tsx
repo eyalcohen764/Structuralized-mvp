@@ -4,9 +4,11 @@ import { Box, CircularProgress, Typography } from "@mui/material";
 import ReportPage from "./ReportPage";
 import BuilderPage from "./SessionBuilderPage";
 import ActiveSessionPage from "./ActiveSessionPage";
+import HomePage from "./HomePage";
 import { getSessionState } from "./extensionState";
 
-function HomePage() {
+/** Checks extension session state and routes to the active session or builder. */
+function SessionGateway() {
   const [status, setStatus] = useState<"loading" | "active" | "inactive">("loading");
 
   useEffect(() => {
@@ -40,6 +42,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<HomePage />} />
+      <Route path="/app" element={<SessionGateway />} />
       <Route path="/report" element={<ReportPage />} />
     </Routes>
   );
