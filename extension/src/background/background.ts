@@ -4,12 +4,16 @@ import {
   STORAGE_KEY,
   REPORT_PREFIX,
   LATEST_REPORT_KEY,
+  resolveSettings,
+  type BlockSettings,
   type Msg,
+  type PauseRecord,
+  type PendingSnooze,
+  type SnoozeRecord,
   type SessionPlan,
   type SessionRuntimeState,
   type SessionReport,
   type ReportBlock,
-  type PauseRecord,
   type StartSessionExternalMsg,
 } from "../shared";
 
@@ -33,7 +37,7 @@ function newRunId() {
   return crypto.randomUUID();
 }
 
-async function sendOrInject(tabId: number, msg: any) {
+async function sendOrInject(tabId: number, msg: Msg) {
   try {
     await chrome.tabs.sendMessage(tabId, msg);
     return;
@@ -58,7 +62,6 @@ async function createEphemeralNotification(
     title,
     message,
   });
-
   chrome.alarms.create(NOTIF_CLEAR_ALARM_PREFIX + id, { when: now() + ttlMs });
   return id;
 }
@@ -104,7 +107,31 @@ function titleForBlock(index: number, total: number, b: { type: string; topic?: 
 }
 
 function ensureReport(plan: SessionPlan, runId: string): SessionReport {
-  return { runId, planId: plan.planId, startedAt: now(), blocks: [] };
+  return {
+    runId,
+    planId: plan.planId,
+    startedAt: now(),
+    blocks: [],
+    globalSettings: plan.globalSettings,
+  };
+}
+
+function finalizeSnoozes(
+  currentSnoozes: PendingSnooze[],
+  priorSnoozes: SnoozeRecord[] | undefined,
+  resumedAt: number
+): SnoozeRecord[] | undefined {
+  const prior = priorSnoozes ?? [];
+  if (currentSnoozes.length === 0 && prior.length === 0) return undefined;
+
+  const newRecord: SnoozeRecord[] = currentSnoozes.map((ps) => ({
+    snoozedAt: ps.snoozedAt,
+    resumedAt,
+    minutes: ps.minutes,
+  }));
+
+  const all = [...prior, ...newRecord];
+  return all.length > 0 ? all : undefined;
 }
 
 async function startBlock(
@@ -112,7 +139,10 @@ async function startBlock(
   origin: string | undefined,
   plan: SessionPlan,
   currentIndex: number,
-  report: SessionReport
+  report: SessionReport,
+  snoozeCount = 0,
+  currentSnoozes: PendingSnooze[] = [],
+  priorSnoozes?: SnoozeRecord[]
 ) {
   const block = plan.blocks[currentIndex];
   const startedAt = now();
@@ -127,6 +157,9 @@ async function startBlock(
     currentBlockStartedAt: startedAt,
     currentBlockEndsAt: endsAt,
     currentPauses: [],
+    snoozeCount,
+    currentSnoozes,
+    priorSnoozes,
     report,
   };
 
@@ -140,14 +173,15 @@ async function startBlock(
         title: titleForBlock(currentIndex, plan.blocks.length, block),
         endsAt,
       },
-    } as any,
+    },
     "Session running",
     titleForBlock(currentIndex, plan.blocks.length, block)
   );
 }
 
+// ─── Alarm handler ────────────────────────────────────────────────────────────
+
 chrome.alarms.onAlarm.addListener(async (alarm) => {
-  // Clear ephemeral notification alarms
   if (alarm.name.startsWith(NOTIF_CLEAR_ALARM_PREFIX)) {
     const notifId = alarm.name.slice(NOTIF_CLEAR_ALARM_PREFIX.length);
     await chrome.notifications.clear(notifId);
@@ -159,19 +193,35 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const s = await getState();
   if (s.status !== "running") return;
 
-  const { plan, currentIndex, currentBlockStartedAt, currentBlockEndsAt, currentPauses } = s;
-  const endedBlock = plan.blocks[currentIndex];
+  const {
+    plan,
+    currentIndex,
+    currentBlockStartedAt,
+    currentBlockEndsAt,
+    currentPauses,
+    currentSnoozes,
+    priorSnoozes,
+    snoozeCount,
+  } = s;
 
+  const endedBlock = plan.blocks[currentIndex];
   const endedTitle = titleForBlock(currentIndex, plan.blocks.length, endedBlock);
+  const resolvedSettings: BlockSettings = resolveSettings(plan, currentIndex);
+
+  const nowMs = now();
+  const allSnoozes = finalizeSnoozes(currentSnoozes, priorSnoozes, nowMs);
 
   const endedReportBlock: ReportBlock = {
     id: endedBlock.id,
-    type: endedBlock.type as any,
+    type: endedBlock.type,
     minutes: endedBlock.minutes,
     topic: endedBlock.topic,
+    goals: endedBlock.goals,
     startedAt: currentBlockStartedAt,
     endedAt: currentBlockEndsAt,
     pauses: currentPauses.length > 0 ? currentPauses : undefined,
+    snoozes: allSnoozes,
+    plannedSettings: resolvedSettings,
   };
 
   const report: SessionReport = {
@@ -181,6 +231,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
   const nextIndex = currentIndex + 1;
   const isLast = nextIndex >= plan.blocks.length;
+
+  // Compute snooze limits for the ended block type
+  const snoozeMax =
+    endedBlock.type === "break"
+      ? (resolvedSettings.returnMaxCount ?? 0)
+      : (resolvedSettings.endMaxCount ?? 0);
+  const maxSnoozeMinutes =
+    endedBlock.type === "break"
+      ? (resolvedSettings.returnSnoozeMaxMinutes ?? 10)
+      : (resolvedSettings.endSnoozeMaxMinutes ?? 15);
 
   if (isLast) {
     const awaiting: SessionRuntimeState = {
@@ -194,6 +254,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       endedBlockTitle: endedTitle,
       nextBlockTitle: "Session complete ✅",
       nextBlockNeedsTopic: false,
+      endedBlockIndex: currentIndex,
+      snoozeCount,
+      resolvedSettings,
     };
 
     await setState(awaiting);
@@ -207,8 +270,15 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
           nextNeedsTopic: false,
           isFinal: true,
           runId: s.runId,
+          inputRequired: endedBlock.type === 'break'
+            ? (resolvedSettings.breakInputRequired ?? false)
+            : (resolvedSettings.inputRequired ?? false),
+          snoozeMax,
+          maxSnoozeMinutes,
+          snoozeCount,
+          endedBlockType: endedBlock.type,
         },
-      } as any,
+      },
       "Session complete",
       "Open a normal tab to view your report."
     );
@@ -231,6 +301,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     endedBlockTitle: endedTitle,
     nextBlockTitle: nextTitle,
     nextBlockNeedsTopic: nextNeedsTopic,
+    endedBlockIndex: currentIndex,
+    snoozeCount,
+    resolvedSettings,
   };
 
   await setState(awaiting);
@@ -244,15 +317,23 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         nextNeedsTopic,
         isFinal: false,
         runId: s.runId,
+        inputRequired: endedBlock.type === 'break'
+          ? (resolvedSettings.breakInputRequired ?? false)
+          : (resolvedSettings.inputRequired ?? false),
+        snoozeMax,
+        maxSnoozeMinutes,
+        snoozeCount,
+        endedBlockType: endedBlock.type,
       },
-    } as any,
+    },
     "Block finished",
     "Open a normal tab to reflect."
   );
 });
 
-/** Website -> extension */
-chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) => {
+// ─── External messages (Website → Extension) ──────────────────────────────────
+
+chrome.runtime.onMessageExternal.addListener((msg: unknown, _sender, sendResponse) => {
   (async () => {
     const m = msg as StartSessionExternalMsg;
 
@@ -283,15 +364,18 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
           report,
           endedBlock: {
             id: "_start_",
-            type: "dynamic" as any,
+            type: "dynamic",
             minutes: 0,
             topic: undefined,
             startedAt: now(),
             endedAt: now(),
-          } as any,
+          },
           endedBlockTitle: "Session starting",
           nextBlockTitle: firstTitle,
           nextBlockNeedsTopic: true,
+          endedBlockIndex: -1,
+          snoozeCount: 0,
+          resolvedSettings: resolveSettings(plan, 0),
         };
 
         await setState(startPromptState);
@@ -305,8 +389,13 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
               nextNeedsTopic: true,
               isFinal: false,
               runId,
+              inputRequired: false,
+              snoozeMax: 0,
+              maxSnoozeMinutes: 0,
+              snoozeCount: 0,
+              endedBlockType: "dynamic",
             },
-          } as any,
+          },
           "Session starting",
           "Choose a focus for your first dynamic block."
         );
@@ -320,8 +409,9 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
       return;
     }
 
-    if (msg?.type === "GET_REPORT") {
-      const runId = msg?.payload?.runId as string | undefined;
+    if ((msg as { type?: string })?.type === "GET_REPORT") {
+      const payload = (msg as { payload?: { runId?: string } })?.payload;
+      const runId = payload?.runId as string | undefined;
 
       if (runId) {
         const res = await chrome.storage.local.get(REPORT_PREFIX + runId);
@@ -342,7 +432,7 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
       return;
     }
 
-    if (msg?.type === "GET_STATE") {
+    if ((msg as { type?: string })?.type === "GET_STATE") {
       const state = await getState();
       sendResponse({ ok: true, state });
       return;
@@ -354,11 +444,14 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
   return true;
 });
 
-/** Content / Popup -> background */
-chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
+// ─── Internal messages (Content / Popup → Background) ────────────────────────
+
+chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
   (async () => {
-    if (msg?.type === "OPEN_REPORT") {
-      const runId = String(msg.payload?.runId ?? "").trim();
+    const m = msg as Msg;
+
+    if (m?.type === "OPEN_REPORT") {
+      const runId = String((m as { payload?: { runId?: unknown } }).payload?.runId ?? "").trim();
       if (!runId) {
         sendResponse({ ok: false, error: "Missing runId" });
         return;
@@ -368,7 +461,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
       return;
     }
 
-    if (msg?.type === "PAUSE_SESSION") {
+    if (m?.type === "PAUSE_SESSION") {
       const s = await getState();
       if (s.status !== "running") {
         sendResponse({ ok: false, error: "Not running" });
@@ -379,7 +472,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
 
       const pausedAt = now();
       const remainingMs = Math.max(0, s.currentBlockEndsAt - pausedAt);
-      const pauseReason = String(msg.payload?.reason ?? "").trim() || undefined;
+      const pauseReason = String((m as { payload?: { reason?: unknown } }).payload?.reason ?? "").trim() || undefined;
 
       const paused: SessionRuntimeState = {
         status: "paused",
@@ -392,6 +485,9 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
         remainingMs,
         pauseReason,
         currentPauses: s.currentPauses,
+        snoozeCount: s.snoozeCount,
+        currentSnoozes: s.currentSnoozes,
+        priorSnoozes: s.priorSnoozes,
         report: s.report,
       };
 
@@ -400,7 +496,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
       return;
     }
 
-    if (msg?.type === "RESUME_SESSION") {
+    if (m?.type === "RESUME_SESSION") {
       const s = await getState();
       if (s.status !== "paused") {
         sendResponse({ ok: false, error: "Not paused" });
@@ -421,6 +517,9 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
         currentBlockStartedAt: s.currentBlockStartedAt,
         currentBlockEndsAt: newEndsAt,
         currentPauses: newPauses,
+        snoozeCount: s.snoozeCount,
+        currentSnoozes: s.currentSnoozes,
+        priorSnoozes: s.priorSnoozes,
         report: s.report,
       };
 
@@ -435,7 +534,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
             title: titleForBlock(s.currentIndex, s.plan.blocks.length, block),
             endsAt: newEndsAt,
           },
-        } as any,
+        },
         "Session resumed",
         titleForBlock(s.currentIndex, s.plan.blocks.length, block)
       );
@@ -444,7 +543,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
       return;
     }
 
-    if (msg?.type === "STOP_SESSION") {
+    if (m?.type === "STOP_SESSION") {
       const s = await getState();
       if (s.status !== "running" && s.status !== "paused") {
         sendResponse({ ok: false, error: "Not running or paused" });
@@ -457,23 +556,30 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
       let currentPauses: PauseRecord[];
 
       if (s.status === "paused") {
-        // Close the open pause at stop time
-        currentPauses = [...s.currentPauses, { pausedAt: s.pausedAt, resumedAt: stoppedAt, reason: s.pauseReason }];
+        currentPauses = [
+          ...s.currentPauses,
+          { pausedAt: s.pausedAt, resumedAt: stoppedAt, reason: s.pauseReason },
+        ];
       } else {
         currentPauses = s.currentPauses;
       }
 
+      // Finalize any pending snooze
+      const allSnoozes = finalizeSnoozes(s.currentSnoozes, s.priorSnoozes, stoppedAt);
+
       const block = s.plan.blocks[s.currentIndex];
-      const endedTitle = titleForBlock(s.currentIndex, s.plan.blocks.length, block);
 
       const endedReportBlock: ReportBlock = {
         id: block.id,
-        type: block.type as any,
+        type: block.type,
         minutes: block.minutes,
         topic: block.topic,
+        goals: block.goals,
         startedAt: s.currentBlockStartedAt,
         endedAt: stoppedAt,
         pauses: currentPauses.length > 0 ? currentPauses : undefined,
+        snoozes: allSnoozes,
+        plannedSettings: resolveSettings(s.plan, s.currentIndex),
       };
 
       const report: SessionReport = {
@@ -504,60 +610,138 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
       return;
     }
 
-    if (msg?.type === "SUBMIT_BLOCK_FEEDBACK") {
+    if (m?.type === "SNOOZE_BLOCK") {
       const s = await getState();
       if (s.status !== "awaiting_feedback") {
         sendResponse({ ok: false, error: "Not awaiting feedback" });
         return;
       }
 
-      const reflection = String(msg.payload?.reflection ?? "").trim();
-      const nextTopic = String(msg.payload?.nextTopic ?? "").trim();
+      const minutes = Number((m as { payload?: { minutes?: unknown } }).payload?.minutes ?? 0);
+      const { resolvedSettings, snoozeCount, endedBlock, endedBlockIndex } = s;
 
-      const isStartPrompt = (s as any).endedBlock?.id === "_start_";
+      const snoozeMax =
+        endedBlock.type === "break"
+          ? (resolvedSettings.returnMaxCount ?? 0)
+          : (resolvedSettings.endMaxCount ?? 0);
+      const maxSnoozeMinutes =
+        endedBlock.type === "break"
+          ? (resolvedSettings.returnSnoozeMaxMinutes ?? 10)
+          : (resolvedSettings.endSnoozeMaxMinutes ?? 15);
 
-      if (!isStartPrompt && !reflection) {
+      if (!Number.isFinite(minutes) || minutes < 1 || minutes > maxSnoozeMinutes) {
+        sendResponse({ ok: false, error: `Snooze minutes must be 1–${maxSnoozeMinutes}` });
+        return;
+      }
+
+      if (snoozeCount >= snoozeMax) {
+        sendResponse({ ok: false, error: "Snooze limit reached" });
+        return;
+      }
+
+      const nowMs = now();
+      const endsAt = nowMs + minutes * 60_000;
+      const pendingSnooze: PendingSnooze = { snoozedAt: nowMs, minutes };
+
+      // Pop endedBlock from report.blocks (it was added when alarm fired)
+      const reportWithoutEnded: SessionReport = {
+        ...s.report,
+        blocks: s.report.blocks.slice(0, -1),
+      };
+
+      const running: SessionRuntimeState = {
+        status: "running",
+        runId: s.runId,
+        origin: s.origin,
+        plan: s.plan,
+        currentIndex: endedBlockIndex,
+        currentBlockStartedAt: endedBlock.startedAt,
+        currentBlockEndsAt: endsAt,
+        currentPauses: [],
+        snoozeCount: snoozeCount + 1,
+        currentSnoozes: [pendingSnooze],
+        priorSnoozes: endedBlock.snoozes,
+        report: reportWithoutEnded,
+      };
+
+      await setState(running);
+      chrome.alarms.create(ALARM_NAME, { when: endsAt });
+
+      const block = s.plan.blocks[endedBlockIndex];
+      await notifyActiveTab(
+        {
+          type: "SHOW_RUNNING_OVERLAY",
+          payload: {
+            title: titleForBlock(endedBlockIndex, s.plan.blocks.length, block),
+            endsAt,
+          },
+        },
+        "Snooze active",
+        titleForBlock(endedBlockIndex, s.plan.blocks.length, block)
+      );
+
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (m?.type === "SUBMIT_BLOCK_FEEDBACK") {
+      const s = await getState();
+      if (s.status !== "awaiting_feedback") {
+        sendResponse({ ok: false, error: "Not awaiting feedback" });
+        return;
+      }
+
+      const reflection = String((m as { payload?: { reflection?: unknown } }).payload?.reflection ?? "").trim();
+      const nextTopic = String((m as { payload?: { nextTopic?: unknown } }).payload?.nextTopic ?? "").trim();
+
+      const isStartPrompt = s.endedBlock?.id === "_start_";
+      const { resolvedSettings } = s;
+
+      const reflectionRequired = s.endedBlock.type === 'break'
+        ? (resolvedSettings.breakInputRequired ?? false)
+        : (resolvedSettings.inputRequired ?? false);
+      if (!isStartPrompt && reflectionRequired && !reflection) {
         sendResponse({ ok: false, error: "Reflection required" });
         return;
       }
 
-      if ((s as any).nextBlockNeedsTopic && !nextTopic) {
+      if (s.nextBlockNeedsTopic && !nextTopic) {
         sendResponse({ ok: false, error: "Next topic required" });
         return;
       }
 
-      let blocks = [...(s as any).report.blocks] as any[];
+      let blocks = [...s.report.blocks];
       if (!isStartPrompt && blocks.length > 0) {
         blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], reflection };
       }
 
-      const nextIndex = (s as any).nextIndex as number;
-      const plan = (s as any).plan as SessionPlan;
+      const nextIndex = s.nextIndex;
+      const plan = s.plan;
       const isFinalBlock = nextIndex >= plan.blocks.length;
 
       if (isFinalBlock) {
         const finalReport: SessionReport = {
-          ...(s as any).report,
+          ...s.report,
           blocks,
           endedAt: now(),
         };
         await chrome.storage.local.set({
-          [REPORT_PREFIX + (s as any).runId]: finalReport,
-          [LATEST_REPORT_KEY]: (s as any).runId,
+          [REPORT_PREFIX + s.runId]: finalReport,
+          [LATEST_REPORT_KEY]: s.runId,
         });
         await setState({
           status: "completed",
-          runId: (s as any).runId,
-          origin: (s as any).origin,
+          runId: s.runId,
+          origin: s.origin,
           plan,
           report: finalReport,
-        } as any);
+        });
         sendResponse({ ok: true });
         return;
       }
 
       let planWithTopic = plan;
-      if ((s as any).nextBlockNeedsTopic) {
+      if (s.nextBlockNeedsTopic) {
         planWithTopic = {
           ...plan,
           blocks: plan.blocks.map((b, i) =>
@@ -566,9 +750,9 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
         };
       }
 
-      const report: SessionReport = { ...(s as any).report, blocks };
+      const report: SessionReport = { ...s.report, blocks };
 
-      await startBlock((s as any).runId, (s as any).origin, planWithTopic, nextIndex, report);
+      await startBlock(s.runId, s.origin, planWithTopic, nextIndex, report);
       sendResponse({ ok: true });
       return;
     }

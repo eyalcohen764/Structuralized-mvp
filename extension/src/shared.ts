@@ -2,19 +2,67 @@ export type BlockType = "work" | "break" | "dynamic";
 
 export const DEFAULT_APP_ORIGIN = "http://localhost:5173";
 
+// ─── Block Settings ───────────────────────────────────────────────────────────
+
+export type BlockSettings = {
+  inputRequired?: boolean;
+  breakInputRequired?: boolean;
+  endMaxCount?: number;
+  endSnoozeMaxMinutes?: number;
+  returnMaxCount?: number;
+  returnSnoozeMaxMinutes?: number;
+};
+
+export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
+  inputRequired: true,
+  breakInputRequired: false,
+  endMaxCount: 2,
+  endSnoozeMaxMinutes: 5,
+  returnMaxCount: 0,
+  returnSnoozeMaxMinutes: 5,
+};
+
+export type SnoozeRecord = {
+  snoozedAt: number;
+  resumedAt: number;
+  minutes: number;
+};
+
+export type PendingSnooze = {
+  snoozedAt: number;
+  minutes: number;
+};
+
+// ─── Session building blocks ──────────────────────────────────────────────────
 
 export type SessionBlock = {
   id: string;
   type: BlockType;
   minutes: number;
-  topic?: string; // work topic OR chosen dynamic focus
+  topic?: string;
+  goals?: string;
+  localSettings?: Partial<BlockSettings>;
 };
 
 export type SessionPlan = {
   planId: string;
   createdAt: number;
   blocks: SessionBlock[];
+  globalSettings?: BlockSettings;
 };
+
+export function resolveSettings(
+  plan: SessionPlan,
+  blockIndex: number,
+): BlockSettings {
+  return {
+    ...DEFAULT_BLOCK_SETTINGS,
+    ...plan.globalSettings,
+    ...(plan.blocks[blockIndex]?.localSettings ?? {}),
+  };
+}
+
+// ─── Report types ─────────────────────────────────────────────────────────────
 
 export type PauseRecord = {
   pausedAt: number;
@@ -27,10 +75,13 @@ export type ReportBlock = {
   type: BlockType;
   minutes: number;
   topic?: string;
+  goals?: string;
   startedAt: number;
   endedAt: number;
   reflection?: string;
   pauses?: PauseRecord[];
+  snoozes?: SnoozeRecord[];
+  plannedSettings?: BlockSettings;
 };
 
 export type SessionReport = {
@@ -40,7 +91,10 @@ export type SessionReport = {
   endedAt?: number;
   blocks: ReportBlock[];
   endedEarly?: boolean;
+  globalSettings?: BlockSettings;
 };
+
+// ─── Runtime state ────────────────────────────────────────────────────────────
 
 export type SessionRuntimeState =
   | { status: "idle" }
@@ -53,6 +107,9 @@ export type SessionRuntimeState =
       currentBlockStartedAt: number;
       currentBlockEndsAt: number;
       currentPauses: PauseRecord[];
+      snoozeCount: number;
+      currentSnoozes: PendingSnooze[];
+      priorSnoozes?: SnoozeRecord[];
       report: SessionReport;
     }
   | {
@@ -65,7 +122,10 @@ export type SessionRuntimeState =
       pausedAt: number;
       remainingMs: number;
       pauseReason?: string;
-      currentPauses: PauseRecord[]; // pauses already closed in this block
+      currentPauses: PauseRecord[];
+      snoozeCount: number;
+      currentSnoozes: PendingSnooze[];
+      priorSnoozes?: SnoozeRecord[];
       report: SessionReport;
     }
   | {
@@ -73,12 +133,15 @@ export type SessionRuntimeState =
       runId: string;
       origin?: string;
       plan: SessionPlan;
-      nextIndex: number; // the next block index we will start AFTER feedback
+      nextIndex: number;
       report: SessionReport;
-      endedBlock: ReportBlock; // the block that just ended
-      nextBlockNeedsTopic: boolean; // true if next is dynamic
+      endedBlock: ReportBlock;
+      nextBlockNeedsTopic: boolean;
       nextBlockTitle: string;
       endedBlockTitle: string;
+      endedBlockIndex: number;
+      snoozeCount: number;
+      resolvedSettings: BlockSettings;
     }
   | {
       status: "completed";
@@ -88,13 +151,15 @@ export type SessionRuntimeState =
       report: SessionReport;
     };
 
+// ─── Storage keys ─────────────────────────────────────────────────────────────
+
 export const STORAGE_KEY = "session_runtime_v3";
 export const APP_ORIGIN_KEY = "app_origin_v3";
-
 export const ALARM_NAME = "session_tick_v3";
-
-export const REPORT_PREFIX = "report_"; // report_<runId>
+export const REPORT_PREFIX = "report_";
 export const LATEST_REPORT_KEY = "latest_report_runId_v3";
+
+// ─── External messages ────────────────────────────────────────────────────────
 
 export type StartSessionExternalMsg = {
   type: "START_SESSION";
@@ -106,8 +171,13 @@ export type GetReportExternalMsg = {
   payload?: { runId?: string };
 };
 
+// ─── Internal messages ────────────────────────────────────────────────────────
+
 export type Msg =
-  | { type: "SHOW_RUNNING_OVERLAY"; payload: { title: string; endsAt: number; subtitle?: string } }
+  | {
+      type: "SHOW_RUNNING_OVERLAY";
+      payload: { title: string; endsAt: number; subtitle?: string };
+    }
   | {
       type: "SHOW_FEEDBACK_MODAL";
       payload: {
@@ -116,6 +186,11 @@ export type Msg =
         nextNeedsTopic: boolean;
         isFinal: boolean;
         runId: string;
+        inputRequired: boolean;
+        snoozeMax: number;
+        maxSnoozeMinutes: number;
+        snoozeCount: number;
+        endedBlockType: BlockType;
       };
     }
   | {
@@ -126,4 +201,5 @@ export type Msg =
   | { type: "GET_STATE" }
   | { type: "PAUSE_SESSION" }
   | { type: "RESUME_SESSION" }
-  | { type: "STOP_SESSION" };
+  | { type: "STOP_SESSION" }
+  | { type: "SNOOZE_BLOCK"; payload: { minutes: number } };

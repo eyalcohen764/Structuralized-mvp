@@ -1,4 +1,4 @@
-import type { Msg } from "../shared";
+import type { BlockType, Msg } from "../shared";
 
 const OVERLAY_ID = "session-ext-overlay-root";
 const MODAL_ID = "session-ext-modal-root";
@@ -62,7 +62,6 @@ function renderRunning(title: string, endsAt: number, subtitle?: string) {
   card.appendChild(btn);
   root.appendChild(card);
 
-  // ✅ auto-hide after 20s
   window.setTimeout(() => {
     const r = document.getElementById(OVERLAY_ID);
     if (r) r.innerHTML = "";
@@ -98,11 +97,17 @@ function renderFeedbackModal(
   nextNeedsTopic: boolean,
   isFinal: boolean,
   runId: string,
+  inputRequired: boolean,
+  snoozeMax: number,
+  maxSnoozeMinutes: number,
+  snoozeCount: number,
+  endedBlockType: BlockType,
 ) {
   clearOverlay();
 
-  // ✅ Dynamic-first start prompt: we don't want reflection; we want topic + Start
   const isStartPrompt = endedTitle === "Session starting";
+  const snoozesLeft = snoozeMax - snoozeCount;
+  const canSnooze = snoozeMax > 0 && !isStartPrompt && snoozesLeft > 0;
 
   const root = ensureModalRoot();
   root.innerHTML = "";
@@ -130,11 +135,9 @@ function renderFeedbackModal(
     </div>
   `;
 
-  // error label (instead of silently returning)
+  // Error label
   const error = document.createElement("div");
-  error.style.cssText =
-    "margin-top:10px;color:#b00020;font-size:13px;display:none;";
-  error.textContent = "";
+  error.style.cssText = "margin-top:10px;color:#b00020;font-size:13px;display:none;";
   const setError = (msg: string) => {
     error.textContent = msg;
     error.style.display = msg ? "block" : "none";
@@ -145,21 +148,18 @@ function renderFeedbackModal(
   reflection.rows = 4;
   reflection.placeholder =
     "Describe the main things you actually did in practice during this block, briefly explain: which of the goals you achieved for this block? or what distracted you?";
-  reflection.style.cssText = `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;resize:vertical;background:${LIGHT.bg};color:${LIGHT.text};`;
+  reflection.style.cssText = `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;resize:vertical;background:${LIGHT.bg};color:${LIGHT.text};box-sizing:border-box;`;
 
   if (!isStartPrompt) {
     const reflectionLabel = document.createElement("div");
     reflectionLabel.style.cssText = `font-weight:700;margin-bottom:6px;color:${LIGHT.text}`;
-    reflectionLabel.textContent = "Quick reflection";
+    reflectionLabel.textContent = inputRequired ? "Quick reflection (required)" : "Quick reflection";
     panel.appendChild(reflectionLabel);
     panel.appendChild(reflection);
   }
 
   // Dynamic topic input
   let topicInput: HTMLInputElement | null = null;
-
-  // ✅ If start prompt: always show topic input (because we only trigger this for dynamic-first)
-  // ✅ If between blocks: show topic input only if nextNeedsTopic
   const shouldAskTopic = isStartPrompt ? true : !isFinal && nextNeedsTopic;
 
   if (shouldAskTopic) {
@@ -174,24 +174,31 @@ function renderFeedbackModal(
     topicInput.placeholder = isStartPrompt
       ? "What are you focusing on now?"
       : "What are you focusing on next?";
-    topicInput.style.cssText = `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;background:${LIGHT.bg};color:${LIGHT.text};`;
+    topicInput.style.cssText = `width:100%;border-radius:12px;border:1px solid ${LIGHT.border};padding:10px;font-size:14px;background:${LIGHT.bg};color:${LIGHT.text};box-sizing:border-box;`;
     panel.appendChild(topicInput);
   }
 
   panel.appendChild(error);
 
   const row = document.createElement("div");
-  row.style.cssText =
-    "display:flex;gap:10px;justify-content:flex-end;margin-top:14px;";
+  row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;margin-top:14px;align-items:center;flex-wrap:wrap;";
 
+  // Submit button
   const submit = document.createElement("button");
-  submit.textContent = isStartPrompt
-    ? "Start"
-    : isFinal
-      ? "Complete"
-      : "Continue";
-  submit.style.cssText =
-    "padding:10px 12px;border-radius:12px;border:1px solid rgba(0,0,0,0.2);background:#111;color:#fff;cursor:pointer;font-weight:800;";
+  submit.textContent = isStartPrompt ? "Start" : isFinal ? "Complete" : "Continue";
+
+  const submitDisabled = !isStartPrompt && inputRequired;
+  submit.disabled = submitDisabled;
+  submit.style.cssText = `padding:10px 12px;border-radius:12px;border:1px solid rgba(0,0,0,0.2);background:#111;color:#fff;cursor:${submitDisabled ? "not-allowed" : "pointer"};font-weight:800;opacity:${submitDisabled ? "0.5" : "1"};`;
+
+  if (!isStartPrompt && inputRequired) {
+    reflection.addEventListener("input", () => {
+      const hasText = reflection.value.trim().length > 0;
+      submit.disabled = !hasText;
+      submit.style.opacity = hasText ? "1" : "0.5";
+      submit.style.cursor = hasText ? "pointer" : "not-allowed";
+    });
+  }
 
   submit.onclick = async () => {
     setError("");
@@ -199,16 +206,13 @@ function renderFeedbackModal(
     const r = reflection.value.trim();
     const t = topicInput ? topicInput.value.trim() : "";
 
-    // Validation:
-    // - Start prompt: only require topic
-    // - Normal: require reflection; and require topic if nextNeedsTopic
     if (isStartPrompt) {
       if (!t) {
         setError("Please enter a focus to start the dynamic block.");
         return;
       }
     } else {
-      if (!r) {
+      if (inputRequired && !r) {
         setError("Please enter a reflection to continue.");
         return;
       }
@@ -226,7 +230,6 @@ function renderFeedbackModal(
       },
     });
 
-    // ✅ final -> open report
     if (isFinal) {
       await chrome.runtime.sendMessage({
         type: "OPEN_REPORT",
@@ -237,14 +240,91 @@ function renderFeedbackModal(
     closeModal();
   };
 
-  row.appendChild(submit);
+  // Snooze button + inline form
+  if (canSnooze) {
+    const snoozeLabel =
+      endedBlockType === "break"
+        ? `Extend Break (${snoozesLeft} left)`
+        : `Snooze (${snoozesLeft} left)`;
 
+    const snoozeBtn = document.createElement("button");
+    snoozeBtn.textContent = snoozeLabel;
+    snoozeBtn.style.cssText = `padding:10px 12px;border-radius:12px;border:1px solid ${LIGHT.border};background:${LIGHT.bg};color:${LIGHT.text};cursor:pointer;font-weight:700;`;
+
+    // Snooze inline form (hidden initially)
+    const snoozeForm = document.createElement("div");
+    snoozeForm.style.cssText = `margin-top:12px;padding:12px;border-radius:12px;border:1px solid ${LIGHT.border};background:rgba(0,0,0,0.03);display:none;`;
+
+    const snoozeFormLabel = document.createElement("div");
+    snoozeFormLabel.style.cssText = `font-weight:700;margin-bottom:8px;font-size:14px;color:${LIGHT.text}`;
+    snoozeFormLabel.textContent = `Snooze for how many minutes? (1–${maxSnoozeMinutes})`;
+
+    const snoozeInput = document.createElement("input");
+    snoozeInput.type = "number";
+    snoozeInput.min = "1";
+    snoozeInput.max = String(maxSnoozeMinutes);
+    snoozeInput.value = String(Math.min(5, maxSnoozeMinutes));
+    snoozeInput.style.cssText = `width:100%;border-radius:10px;border:1px solid ${LIGHT.border};padding:8px;font-size:14px;background:${LIGHT.bg};color:${LIGHT.text};box-sizing:border-box;`;
+
+    const snoozeError = document.createElement("div");
+    snoozeError.style.cssText = "color:#b00020;font-size:12px;margin-top:4px;display:none;";
+
+    const snoozeFormRow = document.createElement("div");
+    snoozeFormRow.style.cssText = "display:flex;gap:8px;margin-top:8px;";
+
+    const snoozeConfirm = document.createElement("button");
+    snoozeConfirm.textContent = "Confirm";
+    snoozeConfirm.style.cssText = `padding:8px 14px;border-radius:10px;border:none;background:#111;color:#fff;cursor:pointer;font-weight:700;`;
+
+    const snoozeCancel = document.createElement("button");
+    snoozeCancel.textContent = "Cancel";
+    snoozeCancel.style.cssText = `padding:8px 14px;border-radius:10px;border:1px solid ${LIGHT.border};background:${LIGHT.bg};color:${LIGHT.text};cursor:pointer;`;
+
+    snoozeCancel.onclick = () => {
+      snoozeForm.style.display = "none";
+      snoozeBtn.style.display = "inline-block";
+    };
+
+    snoozeConfirm.onclick = async () => {
+      const mins = Number(snoozeInput.value);
+      if (!Number.isFinite(mins) || mins < 1 || mins > maxSnoozeMinutes) {
+        snoozeError.textContent = `Please enter a value between 1 and ${maxSnoozeMinutes}.`;
+        snoozeError.style.display = "block";
+        return;
+      }
+      snoozeError.style.display = "none";
+
+      await chrome.runtime.sendMessage({
+        type: "SNOOZE_BLOCK",
+        payload: { minutes: mins },
+      });
+
+      closeModal();
+    };
+
+    snoozeFormRow.appendChild(snoozeConfirm);
+    snoozeFormRow.appendChild(snoozeCancel);
+
+    snoozeForm.appendChild(snoozeFormLabel);
+    snoozeForm.appendChild(snoozeInput);
+    snoozeForm.appendChild(snoozeError);
+    snoozeForm.appendChild(snoozeFormRow);
+
+    snoozeBtn.onclick = () => {
+      snoozeForm.style.display = "block";
+      snoozeBtn.style.display = "none";
+    };
+
+    row.insertBefore(snoozeBtn, row.firstChild);
+    panel.appendChild(snoozeForm);
+  }
+
+  row.appendChild(submit);
   panel.appendChild(row);
 
   root.appendChild(backdrop);
   root.appendChild(panel);
 
-  // nicety: focus the first field
   if (isStartPrompt && topicInput) topicInput.focus();
   else if (!isStartPrompt) reflection.focus();
 }
@@ -272,6 +352,11 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
       msg.payload.nextNeedsTopic,
       msg.payload.isFinal,
       msg.payload.runId,
+      msg.payload.inputRequired,
+      msg.payload.snoozeMax,
+      msg.payload.maxSnoozeMinutes,
+      msg.payload.snoozeCount,
+      msg.payload.endedBlockType,
     );
     return;
   }

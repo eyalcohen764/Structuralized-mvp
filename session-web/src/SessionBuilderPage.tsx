@@ -24,6 +24,7 @@ import {
   DialogTitle,
   DialogContent,
   DialogActions,
+  Box,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -32,33 +33,17 @@ import ArrowDownwardIcon from "@mui/icons-material/ArrowDownward";
 import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import SettingsIcon from "@mui/icons-material/Settings";
+import TuneIcon from "@mui/icons-material/Tune";
+import {
+  DEFAULT_BLOCK_SETTINGS,
+  type BlockSettings,
+  type BlockType,
+  type SessionBlock,
+  type SessionPlan,
+  type StartSessionExternalMsg,
+} from "../../extension/src/shared";
+import BlockSettingsPanel from "./components/BlockSettingsPanel";
 import { getExtensionId, getExtensionIdAsync, setExtensionId } from "./config";
-
-/** ===== Types (shared contract with extension) ===== */
-export type BlockType = "work" | "break" | "dynamic";
-
-export type SessionBlock = {
-  id: string;
-  type: BlockType;
-  minutes: number; // free input
-  topic?: string; // only required for work
-  note?: string; // optional future field
-};
-
-export type SessionPlan = {
-  planId: string;
-  createdAt: number;
-  blocks: SessionBlock[];
-};
-
-/** Message we will send to extension (ready for multi-block) */
-export type StartSessionExternalMsg = {
-  type: "START_SESSION";
-  payload: {
-    origin: string;
-    plan: SessionPlan;
-  };
-};
 
 function canTalkToExtension(): boolean {
   return typeof chrome !== "undefined" && !!chrome.runtime?.sendMessage;
@@ -74,9 +59,7 @@ function prettyType(t: BlockType): string {
   return "Dynamic";
 }
 
-function typeColor(
-  t: BlockType,
-): "default" | "primary" | "success" | "warning" {
+function typeColor(t: BlockType): "default" | "primary" | "success" | "warning" {
   if (t === "work") return "primary";
   if (t === "break") return "success";
   return "warning";
@@ -119,11 +102,10 @@ export default function App() {
     { id: uid(), type: "work", minutes: 25, topic: "Deep work" },
   ]);
 
-  const [toast, setToast] = useState<{
-    kind: "success" | "error";
-    msg: string;
-  } | null>(null);
+  const [globalSettings, setGlobalSettings] = useState<BlockSettings>(DEFAULT_BLOCK_SETTINGS);
+  const [settingsBlockId, setSettingsBlockId] = useState<string | null>(null);
 
+  const [toast, setToast] = useState<{ kind: "success" | "error"; msg: string } | null>(null);
   const [extensionDialogOpen, setExtensionDialogOpen] = useState(false);
   const [extensionIdInput, setExtensionIdInput] = useState(getExtensionId());
 
@@ -134,7 +116,6 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // Cumulative clock-time estimate for each block, assuming session starts right now
   const blockSchedule = useMemo(() => {
     let cursor = now;
     return blocks.map((b) => {
@@ -176,16 +157,14 @@ export default function App() {
 
   function updateBlock(id: string, patch: Partial<SessionBlock>) {
     setBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, ...patch } : b)),
+      prev.map((b) => (b.id === id ? { ...b, ...patch } : b))
     );
   }
 
   function validatePlan(): string | null {
     if (blocks.length === 0) return "Add at least one block.";
-
     for (let i = 0; i < blocks.length; i++) {
       const b = blocks[i];
-
       if (!b.minutes || b.minutes < 1) return `Block ${i + 1} needs minutes.`;
       if (b.type === "work") {
         const topic = (b.topic ?? "").trim();
@@ -203,7 +182,13 @@ export default function App() {
         ...b,
         minutes: clampMinutes(b.minutes),
         topic: b.type === "work" ? (b.topic ?? "").trim() : undefined,
+        goals: b.goals?.trim() || undefined,
+        localSettings:
+          b.localSettings && Object.keys(b.localSettings).length > 0
+            ? b.localSettings
+            : undefined,
       })),
+      globalSettings,
     };
   }
 
@@ -231,10 +216,7 @@ export default function App() {
 
     const msg: StartSessionExternalMsg = {
       type: "START_SESSION",
-      payload: {
-        origin: window.location.origin,
-        plan,
-      },
+      payload: { origin: window.location.origin, plan },
     };
 
     const extId = await getExtensionIdAsync();
@@ -253,40 +235,31 @@ export default function App() {
         if (isConnectionError) setExtensionDialogOpen(true);
         return;
       }
-      setToast({
-        kind: "success",
-        msg: "Session started. Extension is running.",
-      });
+      setToast({ kind: "success", msg: "Session started. Extension is running." });
     });
   }
 
   function reset() {
     setBlocks([{ id: uid(), type: "work", minutes: 25, topic: "Deep work" }]);
+    setGlobalSettings(DEFAULT_BLOCK_SETTINGS);
     localStorage.removeItem("session_plan_v1");
     setToast({ kind: "success", msg: "Reset session builder." });
   }
+
+  const settingsBlock = settingsBlockId
+    ? blocks.find((b) => b.id === settingsBlockId) ?? null
+    : null;
 
   return (
     <>
       <AppBar
         position="sticky"
         elevation={0}
-        sx={{
-          borderBottom: "1px solid",
-          borderColor: "divider",
-          bgcolor: "background.paper",
-        }}
+        sx={{ borderBottom: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}
       >
         <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
           <Stack spacing={0.25}>
-            <Typography
-              variant="h6"
-              sx={{
-                fontWeight: 800,
-                letterSpacing: -0.5,
-                color: "text.primary",
-              }}
-            >
+            <Typography variant="h6" sx={{ fontWeight: 800, letterSpacing: -0.5, color: "text.primary" }}>
               Session Builder
             </Typography>
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
@@ -302,13 +275,7 @@ export default function App() {
               rel="noopener noreferrer"
               variant="outlined"
               size="medium"
-              sx={{
-                textTransform: "none",
-                fontWeight: 600,
-                fontSize: "0.95rem",
-                borderRadius: 2,
-                px: 2,
-              }}
+              sx={{ textTransform: "none", fontWeight: 600, fontSize: "0.95rem", borderRadius: 2, px: 2 }}
             >
               How to use the system
             </Button>
@@ -335,312 +302,370 @@ export default function App() {
         </Toolbar>
       </AppBar>
 
-      <Container maxWidth="md" sx={{ py: 3 }}>
-        <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
-          <Stack
-            direction={{ xs: "column", sm: "row" }}
-            spacing={1}
-            justifyContent="space-between"
-            alignItems={{ xs: "stretch", sm: "center" }}
-          >
-            <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>
-              Blocks
-            </Typography>
-
-            <Stack direction="row" spacing={1} flexWrap="wrap">
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={() => addBlock("work")}
-                sx={{ borderRadius: 2, textTransform: "none" }}
+      <Container maxWidth="lg" sx={{ py: 3 }}>
+        <Stack direction={{ xs: "column", md: "row" }} spacing={2.5} alignItems="flex-start">
+          {/* ── Blocks area ── */}
+          <Box sx={{ flex: 1, minWidth: 0 }}>
+            <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
+              <Stack
+                direction={{ xs: "column", sm: "row" }}
+                spacing={1}
+                justifyContent="space-between"
+                alignItems={{ xs: "stretch", sm: "center" }}
               >
-                Add Work
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<AddIcon />}
-                onClick={() => addBlock("break")}
-                sx={{ borderRadius: 2, textTransform: "none" }}
-              >
-                Add Break
-              </Button>
-              <Tooltip
-                title="A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
-                slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
-              >
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<AddIcon />}
-                  onClick={() => addBlock("dynamic")}
-                  sx={{ borderRadius: 2, textTransform: "none" }}
-                >
-                  Add Dynamic
-                </Button>
-              </Tooltip>
+                <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>
+                  Blocks
+                </Typography>
 
-              <Tooltip title="Reset builder">
-                <IconButton onClick={reset}>
-                  <RestartAltIcon />
-                </IconButton>
-              </Tooltip>
-            </Stack>
-          </Stack>
-
-          <Divider sx={{ my: 2 }} />
-
-          <Stack spacing={1.5}>
-            {blocks.map((b, idx) => (
-              <Card key={b.id} variant="outlined" sx={{ borderRadius: 3 }}>
-                <CardContent sx={{ pb: 1.5 }}>
-                  <Stack
-                    direction="row"
-                    alignItems="center"
-                    spacing={1}
-                    sx={{ mb: 1 }}
+                <Stack direction="row" spacing={1} flexWrap="wrap">
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => addBlock("work")}
+                    sx={{ borderRadius: 2, textTransform: "none" }}
                   >
-                    <Chip
-                      label={`${idx + 1}`}
+                    Add Work
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={() => addBlock("break")}
+                    sx={{ borderRadius: 2, textTransform: "none" }}
+                  >
+                    Add Break
+                  </Button>
+                  <Tooltip
+                    title="A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
+                    slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
+                  >
+                    <Button
                       size="small"
                       variant="outlined"
-                    />
-                    <Tooltip
-                      title={
-                        b.type === "dynamic"
-                          ? "A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
-                          : ""
-                      }
-                      disableHoverListener={b.type !== "dynamic"}
-                      slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
+                      startIcon={<AddIcon />}
+                      onClick={() => addBlock("dynamic")}
+                      sx={{ borderRadius: 2, textTransform: "none" }}
                     >
-                      <Chip
-                        label={prettyType(b.type)}
-                        size="small"
-                        color={typeColor(b.type)}
-                      />
-                    </Tooltip>
-                    <Typography
-                      variant="subtitle2"
-                      sx={{ fontWeight: 600, ml: 0.2 }}
-                    >
-                      {b.type === "work"
-                        ? b.topic?.trim()
-                          ? b.topic
-                          : "Untitled work"
-                        : b.type === "break"
-                          ? "Recovery"
-                          : " topic will be decided only when the block actually starts"}
-                    </Typography>
+                      Add Dynamic
+                    </Button>
+                  </Tooltip>
 
-                    <Stack direction="row" spacing={0.5} sx={{ ml: "auto" }}>
-                      <Tooltip title="Move up">
-                        <span>
-                          <IconButton
-                            size="small"
-                            onClick={() => moveBlock(b.id, "up")}
-                            disabled={idx === 0}
-                          >
-                            <ArrowUpwardIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Move down">
-                        <span>
-                          <IconButton
-                            size="small"
-                            onClick={() => moveBlock(b.id, "down")}
-                            disabled={idx === blocks.length - 1}
-                          >
-                            <ArrowDownwardIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                      <Tooltip title="Remove">
-                        <span>
-                          <IconButton
-                            size="small"
-                            onClick={() => removeBlock(b.id)}
-                            disabled={blocks.length === 1}
-                          >
-                            <DeleteOutlineIcon fontSize="small" />
-                          </IconButton>
-                        </span>
-                      </Tooltip>
-                    </Stack>
-                  </Stack>
+                  <Tooltip title="Reset builder">
+                    <IconButton onClick={reset}>
+                      <RestartAltIcon />
+                    </IconButton>
+                  </Tooltip>
+                </Stack>
+              </Stack>
 
-                  <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25}>
-                    {/* Type selector */}
-                    <ToggleButtonGroup
-                      exclusive
-                      value={b.type}
-                      onChange={(_, v) => {
-                        if (!v) return;
-                        const next = v as BlockType;
-                        // when switching to work, keep topic field; switching away clears it
-                        if (next === "work")
-                          updateBlock(b.id, {
-                            type: next,
-                            topic: b.topic ?? "",
-                          });
-                        else
-                          updateBlock(b.id, { type: next, topic: undefined });
-                      }}
-                      size="small"
-                      sx={{ alignSelf: "flex-start" }}
-                    >
-                      <ToggleButton
-                        value="work"
-                        sx={{ textTransform: "none", borderRadius: 2 }}
-                      >
-                        Work
-                      </ToggleButton>
-                      <ToggleButton
-                        value="break"
-                        sx={{ textTransform: "none", borderRadius: 2 }}
-                      >
-                        Break
-                      </ToggleButton>
-                      <Tooltip
-                        title="A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
-                        slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
-                      >
-                        <ToggleButton
-                          value="dynamic"
-                          sx={{ textTransform: "none", borderRadius: 2 }}
+              <Divider sx={{ my: 2 }} />
+
+              <Stack spacing={1.5}>
+                {blocks.map((b, idx) => {
+                  const hasLocalSettings =
+                    b.localSettings && Object.keys(b.localSettings).length > 0;
+
+                  return (
+                    <Card key={b.id} variant="outlined" sx={{ borderRadius: 3 }}>
+                      <CardContent sx={{ pb: 1.5 }}>
+                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+                          <Chip label={`${idx + 1}`} size="small" variant="outlined" />
+                          <Tooltip
+                            title={
+                              b.type === "dynamic"
+                                ? "A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
+                                : ""
+                            }
+                            disableHoverListener={b.type !== "dynamic"}
+                            slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
+                          >
+                            <Chip
+                              label={prettyType(b.type)}
+                              size="small"
+                              color={typeColor(b.type)}
+                            />
+                          </Tooltip>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 600, ml: 0.2 }}>
+                            {b.type === "work"
+                              ? b.topic?.trim()
+                                ? b.topic
+                                : "Untitled work"
+                              : b.type === "break"
+                                ? "Recovery"
+                                : " topic will be decided only when the block actually starts"}
+                          </Typography>
+
+                          <Stack direction="row" spacing={0.5} sx={{ ml: "auto" }}>
+                            <Tooltip title="Block settings">
+                              <IconButton
+                                size="small"
+                                onClick={() => setSettingsBlockId(b.id)}
+                              >
+                                <SettingsIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Move up">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => moveBlock(b.id, "up")}
+                                  disabled={idx === 0}
+                                >
+                                  <ArrowUpwardIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="Move down">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => moveBlock(b.id, "down")}
+                                  disabled={idx === blocks.length - 1}
+                                >
+                                  <ArrowDownwardIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                            <Tooltip title="Remove">
+                              <span>
+                                <IconButton
+                                  size="small"
+                                  onClick={() => removeBlock(b.id)}
+                                  disabled={blocks.length === 1}
+                                >
+                                  <DeleteOutlineIcon fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </Stack>
+                        </Stack>
+
+                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ mb: 1.25 }}>
+                          {/* Type selector */}
+                          <ToggleButtonGroup
+                            exclusive
+                            value={b.type}
+                            onChange={(_, v) => {
+                              if (!v) return;
+                              const next = v as BlockType;
+                              if (next === "work")
+                                updateBlock(b.id, { type: next, topic: b.topic ?? "" });
+                              else
+                                updateBlock(b.id, { type: next, topic: undefined });
+                            }}
+                            size="small"
+                            sx={{ alignSelf: "flex-start" }}
+                          >
+                            <ToggleButton value="work" sx={{ textTransform: "none", borderRadius: 2 }}>
+                              Work
+                            </ToggleButton>
+                            <ToggleButton value="break" sx={{ textTransform: "none", borderRadius: 2 }}>
+                              Break
+                            </ToggleButton>
+                            <Tooltip
+                              title="A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
+                              slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
+                            >
+                              <ToggleButton value="dynamic" sx={{ textTransform: "none", borderRadius: 2 }}>
+                                Dynamic
+                              </ToggleButton>
+                            </Tooltip>
+                          </ToggleButtonGroup>
+
+                          {/* Duration */}
+                          <Stack direction="row" spacing={1} sx={{ width: { xs: "100%", sm: "auto" } }}>
+                            <TextField
+                              label="Hours"
+                              type="number"
+                              value={Math.floor((b.minutes || 0) / 60).toString()}
+                              onChange={(e) => {
+                                const newHours = e.target.value === "" ? 0 : Number(e.target.value);
+                                const currentMins = (b.minutes || 0) % 60;
+                                updateBlock(b.id, { minutes: newHours * 60 + currentMins });
+                              }}
+                              inputProps={{ min: 0, max: 24, step: 1 }}
+                              size="small"
+                              sx={{ width: { xs: "50%", sm: 110 } }}
+                              InputProps={{
+                                endAdornment: <InputAdornment position="end">h</InputAdornment>,
+                              }}
+                              helperText="0–24"
+                            />
+                            <TextField
+                              label="Minutes"
+                              type="number"
+                              value={((b.minutes || 0) % 60).toString()}
+                              onChange={(e) => {
+                                const newMins = e.target.value === "" ? 0 : Number(e.target.value);
+                                const currentHours = Math.floor((b.minutes || 0) / 60);
+                                updateBlock(b.id, { minutes: currentHours * 60 + newMins });
+                              }}
+                              inputProps={{ min: 0, max: 59, step: 1 }}
+                              size="small"
+                              sx={{ width: { xs: "50%", sm: 110 } }}
+                              InputProps={{
+                                endAdornment: <InputAdornment position="end">m</InputAdornment>,
+                              }}
+                              helperText="0–59"
+                            />
+                          </Stack>
+
+                          {/* Live clock estimate */}
+                          <Stack justifyContent="center" sx={{ minWidth: 110 }}>
+                            <Typography
+                              variant="caption"
+                              sx={{ color: "text.disabled", fontWeight: 700, letterSpacing: "0.05em" }}
+                            >
+                              EST. TIME
+                            </Typography>
+                            <Typography
+                              variant="body2"
+                              sx={{ fontFamily: "monospace", color: "text.secondary", whiteSpace: "nowrap" }}
+                            >
+                              {formatClockRange(blockSchedule[idx].start, blockSchedule[idx].end)}
+                            </Typography>
+                          </Stack>
+
+                          {/* Topic */}
+                          {b.type === "work" ? (
+                            <TextField
+                              label="Work topic"
+                              placeholder="e.g., CS problem set"
+                              value={b.topic ?? ""}
+                              onChange={(e) => updateBlock(b.id, { topic: e.target.value })}
+                              size="small"
+                              fullWidth
+                              helperText="Required for Work blocks"
+                            />
+                          ) : (
+                            <TextField
+                              label={b.type === "break" ? "Break" : "Dynamic"}
+                              value={
+                                b.type === "break"
+                                  ? "Recovery interval"
+                                  : "Choose topic at runtime"
+                              }
+                              size="small"
+                              fullWidth
+                              disabled
+                            />
+                          )}
+                        </Stack>
+
+                        <TextField
+                          label="Goals (optional)"
+                          placeholder="e.g., Finish section, handle edge cases…"
+                          value={b.goals ?? ""}
+                          onChange={(e) => updateBlock(b.id, { goals: e.target.value })}
+                          multiline
+                          minRows={2}
+                          size="small"
+                          fullWidth
+                        />
+                      </CardContent>
+
+                      <CardActions sx={{ pt: 0, pb: 1.5, px: 2 }}>
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          flexWrap="wrap"
+                          useFlexGap
+                          sx={{ flex: 1 }}
                         >
-                          Dynamic
-                        </ToggleButton>
-                      </Tooltip>
-                    </ToggleButtonGroup>
+                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                            Quick timing:
+                          </Typography>
+                          {PRESET_MINUTES.map((m) => (
+                            <Chip
+                              key={m}
+                              label={formatPreset(m)}
+                              size="small"
+                              variant={b.minutes === m ? "filled" : "outlined"}
+                              onClick={() => updateBlock(b.id, { minutes: m })}
+                              sx={{ cursor: "pointer", minWidth: 44 }}
+                            />
+                          ))}
+                          {hasLocalSettings && (
+                            <Chip
+                              label="Custom settings"
+                              size="small"
+                              color="warning"
+                              variant="outlined"
+                            />
+                          )}
+                        </Stack>
+                      </CardActions>
+                    </Card>
+                  );
+                })}
+              </Stack>
+            </Paper>
+          </Box>
 
-                    {/* Duration (Hours & Minutes) */}
-                    <Stack
-                      direction="row"
-                      spacing={1}
-                      sx={{ width: { xs: "100%", sm: "auto" } }}
-                    >
-                      <TextField
-                        label="Hours"
-                        type="number"
-                        value={Math.floor((b.minutes || 0) / 60).toString()}
-                        onChange={(e) => {
-                          const newHours =
-                            e.target.value === "" ? 0 : Number(e.target.value);
-                          const currentMins = (b.minutes || 0) % 60;
-                          updateBlock(b.id, {
-                            minutes: newHours * 60 + currentMins,
-                          });
-                        }}
-                        inputProps={{ min: 0, max: 24, step: 1 }}
-                        size="small"
-                        sx={{ width: { xs: "50%", sm: 110 } }}
-                        InputProps={{
-                          endAdornment: (
-                            <InputAdornment position="end">h</InputAdornment>
-                          ),
-                        }}
-                        helperText="0–24"
-                      />
-                      <TextField
-                        label="Minutes"
-                        type="number"
-                        value={((b.minutes || 0) % 60).toString()}
-                        onChange={(e) => {
-                          const newMins =
-                            e.target.value === "" ? 0 : Number(e.target.value);
-                          const currentHours = Math.floor(
-                            (b.minutes || 0) / 60,
-                          );
-                          updateBlock(b.id, {
-                            minutes: currentHours * 60 + newMins,
-                          });
-                        }}
-                        inputProps={{ min: 0, max: 59, step: 1 }}
-                        size="small"
-                        sx={{ width: { xs: "50%", sm: 110 } }}
-                        InputProps={{
-                          endAdornment: (
-                            <InputAdornment position="end">m</InputAdornment>
-                          ),
-                        }}
-                        helperText="0–59"
-                      />
-                    </Stack>
-
-                    {/* Live clock estimate */}
-                    <Stack justifyContent="center" sx={{ minWidth: 110 }}>
-                      <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 700, letterSpacing: "0.05em" }}>
-                        EST. TIME
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontFamily: "monospace", color: "text.secondary", whiteSpace: "nowrap" }}>
-                        {formatClockRange(blockSchedule[idx].start, blockSchedule[idx].end)}
-                      </Typography>
-                    </Stack>
-
-                    {/* Topic (free input) only for Work */}
-                    {b.type === "work" ? (
-                      <TextField
-                        label="Work topic"
-                        placeholder="e.g., CS problem set"
-                        value={b.topic ?? ""}
-                        onChange={(e) =>
-                          updateBlock(b.id, { topic: e.target.value })
-                        }
-                        size="small"
-                        fullWidth
-                        helperText="Required for Work blocks"
-                      />
-                    ) : (
-                      <TextField
-                        label={b.type === "break" ? "Break" : "Dynamic"}
-                        value={
-                          b.type === "break"
-                            ? "Recovery interval"
-                            : "Choose topic at runtime"
-                        }
-                        size="small"
-                        fullWidth
-                        disabled
-                      />
-                    )}
-                  </Stack>
-                </CardContent>
-
-                {/* Preset minute chips */}
-                <CardActions sx={{ pt: 0, pb: 1.5, px: 2 }}>
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    alignItems="center"
-                    flexWrap="wrap"
-                    useFlexGap
-                  >
-                    <Typography
-                      variant="caption"
-                      sx={{ color: "text.secondary" }}
-                    >
-                      Quick timing:
-                    </Typography>
-                    {PRESET_MINUTES.map((m) => (
-                      <Chip
-                        key={m}
-                        label={formatPreset(m)}
-                        size="small"
-                        variant={b.minutes === m ? "filled" : "outlined"}
-                        onClick={() => updateBlock(b.id, { minutes: m })}
-                        sx={{ cursor: "pointer", minWidth: 44 }}
-                      />
-                    ))}
-                  </Stack>
-                </CardActions>
-              </Card>
-            ))}
-          </Stack>
-        </Paper>
+          {/* ── Settings sidebar ── */}
+          <Paper
+            variant="outlined"
+            sx={{ width: { xs: "100%", md: 280 }, flexShrink: 0, borderRadius: 3, p: 2 }}
+          >
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+              <TuneIcon sx={{ fontSize: 18, color: "text.secondary" }} />
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
+                Session Settings
+              </Typography>
+            </Stack>
+            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1.5 }}>
+              Defaults for all blocks. Override per-block with the tune icon.
+            </Typography>
+            <Divider sx={{ mb: 1.5 }} />
+            <BlockSettingsPanel
+              scope="global"
+              settings={globalSettings}
+              onChange={(patch) => setGlobalSettings((prev) => ({ ...prev, ...patch }))}
+            />
+          </Paper>
+        </Stack>
       </Container>
+
+      {/* Per-block settings dialog */}
+      {settingsBlock && (
+        <Dialog
+          open={settingsBlockId !== null}
+          onClose={() => setSettingsBlockId(null)}
+          maxWidth="sm"
+          fullWidth
+        >
+          <DialogTitle>
+            Block {blocks.findIndex((b) => b.id === settingsBlock.id) + 1} Settings
+            <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400, mt: 0.25 }}>
+              Overrides apply to this block only. Other fields inherit global settings.
+            </Typography>
+          </DialogTitle>
+          <DialogContent>
+            <BlockSettingsPanel
+              scope="per-block"
+              settings={{ ...globalSettings, ...(settingsBlock.localSettings ?? {}) }}
+              localOverrides={settingsBlock.localSettings ?? {}}
+              blockType={settingsBlock.type}
+              onOverrideChange={(field, value) => {
+                const current = { ...(settingsBlock.localSettings ?? {}) };
+                if (value === undefined) {
+                  delete current[field];
+                } else {
+                  (current as Record<string, unknown>)[field] = value;
+                }
+                updateBlock(settingsBlock.id, {
+                  localSettings: Object.keys(current).length > 0 ? current : undefined,
+                });
+              }}
+            />
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={() => setSettingsBlockId(null)}>Done</Button>
+          </DialogActions>
+        </Dialog>
+      )}
 
       <Snackbar
         open={!!toast}
@@ -649,11 +674,7 @@ export default function App() {
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
         {toast ? (
-          <Alert
-            severity={toast.kind}
-            onClose={() => setToast(null)}
-            sx={{ width: "100%" }}
-          >
+          <Alert severity={toast.kind} onClose={() => setToast(null)} sx={{ width: "100%" }}>
             {toast.msg}
           </Alert>
         ) : undefined}
@@ -668,8 +689,8 @@ export default function App() {
         <DialogTitle>Extension ID</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-            Copy the Extension ID from chrome://extensions (click the extension,
-            copy the ID under the name).
+            Copy the Extension ID from chrome://extensions (click the extension, copy the ID under
+            the name).
           </Typography>
           <TextField
             fullWidth

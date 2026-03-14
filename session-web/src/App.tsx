@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, Navigate } from "react-router-dom";
 import { Box, CircularProgress, Typography } from "@mui/material";
 import ReportPage from "./ReportPage";
 import BuilderPage from "./SessionBuilderPage";
 import ActiveSessionPage from "./ActiveSessionPage";
 import HomePage from "./HomePage";
+import LoginPage from "./LoginPage";
+import RequireAuth from "./RequireAuth";
 import { getSessionState } from "./extensionState";
 
 /** Checks extension session state and routes to the active session or builder. */
@@ -41,9 +43,32 @@ function SessionGateway() {
 export default function App() {
   return (
     <Routes>
-      <Route path="/" element={<HomePage />} />
-      <Route path="/app" element={<SessionGateway />} />
-      <Route path="/report" element={<ReportPage />} />
+      <Route path="/login" element={<LoginPage />} />
+      <Route
+        path="/"
+        element={
+          <RequireAuth>
+            <HomePage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/app"
+        element={
+          <RequireAuth>
+            <SessionGateway />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/report"
+        element={
+          <RequireAuth>
+            <ReportPage />
+          </RequireAuth>
+        }
+      />
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
 }

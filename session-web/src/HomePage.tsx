@@ -1,7 +1,10 @@
 import { useNavigate } from "react-router-dom";
 import {
+  Avatar,
   Box,
   Container,
+  IconButton,
+  Tooltip,
   Typography,
   Button,
   Stack,
@@ -11,6 +14,8 @@ import AutoFixHighIcon from "@mui/icons-material/AutoFixHigh";
 import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
+import LogoutIcon from "@mui/icons-material/Logout";
+import { useAuth } from "./AuthContext";
 
 interface Feature {
   icon: React.ReactNode;
@@ -68,12 +73,27 @@ const CTA_SX = {
 
 export default function HomePage() {
   const navigate = useNavigate();
+  const { user, signOut } = useAuth();
 
-  // Swap this handler for Firebase signIn() when adding auth
   const handleGetStarted = () => navigate("/app");
 
   return (
-    <Box sx={{ minHeight: "100vh", background: "linear-gradient(160deg, #f8fafc 0%, #f1f5f9 100%)" }}>
+    <Box sx={{ minHeight: "100vh", background: "linear-gradient(160deg, #f8fafc 0%, #f1f5f9 100%)", position: "relative" }}>
+      {/* ── User avatar + logout ── */}
+      <Box sx={{ position: "absolute", top: 16, right: 16, display: "flex", alignItems: "center", gap: 1, zIndex: 10 }}>
+        {user?.photoURL && (
+          <Avatar
+            src={user.photoURL}
+            alt={user.displayName ?? "User"}
+            sx={{ width: 34, height: 34 }}
+          />
+        )}
+        <Tooltip title="Sign out">
+          <IconButton size="small" onClick={signOut} sx={{ color: "#64748b" }}>
+            <LogoutIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      </Box>
       {/* ── Hero ── */}
       <Box
         sx={{
