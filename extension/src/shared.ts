@@ -19,6 +19,7 @@ export type SessionPlan = {
 export type PauseRecord = {
   pausedAt: number;
   resumedAt: number;
+  reason?: string;
 };
 
 export type ReportBlock = {
@@ -63,6 +64,7 @@ export type SessionRuntimeState =
       currentBlockStartedAt: number;
       pausedAt: number;
       remainingMs: number;
+      pauseReason?: string;
       currentPauses: PauseRecord[]; // pauses already closed in this block
       report: SessionReport;
     }
@@ -77,7 +79,6 @@ export type SessionRuntimeState =
       nextBlockNeedsTopic: boolean; // true if next is dynamic
       nextBlockTitle: string;
       endedBlockTitle: string;
-      isStopped?: boolean; // true when user clicked Stop mid-session
     }
   | {
       status: "completed";

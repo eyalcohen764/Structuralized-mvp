@@ -1,4 +1,7 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { Box, Typography, Chip } from "@mui/material";
+import PauseCircleIcon from "@mui/icons-material/PauseCircle";
+import PlayCircleIcon from "@mui/icons-material/PlayCircle";
 import { getSessionState } from "./extensionState";
 
 interface Props {
@@ -6,11 +9,15 @@ interface Props {
 }
 
 export default function ActiveSessionPage({ onSessionEnded }: Props) {
+  const [status, setStatus] = useState<"running" | "paused" | "awaiting_feedback" | null>(null);
+
   useEffect(() => {
     const check = async () => {
-      const status = await getSessionState();
-      if (status === "idle" || status === "completed" || status === null) {
+      const s = await getSessionState();
+      if (s === "idle" || s === "completed" || s === null) {
         onSessionEnded();
+      } else {
+        setStatus(s as "running" | "paused" | "awaiting_feedback");
       }
     };
 
@@ -19,10 +26,31 @@ export default function ActiveSessionPage({ onSessionEnded }: Props) {
     return () => clearInterval(interval);
   }, [onSessionEnded]);
 
+  const isPaused = status === "paused";
+
   return (
-    <div style={{ padding: "2rem", textAlign: "center" }}>
-      <h2>Active session exists</h2>
-      <p>The planner will be restored when the session ends.</p>
-    </div>
+    <Box sx={{ py: 6, textAlign: "center" }}>
+      <Box sx={{ display: "flex", justifyContent: "center", mb: 2, color: isPaused ? "warning.main" : "success.main" }}>
+        {isPaused
+          ? <PauseCircleIcon sx={{ fontSize: 56 }} />
+          : <PlayCircleIcon sx={{ fontSize: 56 }} />
+        }
+      </Box>
+
+      <Chip
+        label={isPaused ? "Session Paused" : "Session Running"}
+        color={isPaused ? "warning" : "success"}
+        sx={{ mb: 2, fontWeight: 700, fontSize: "0.95rem", px: 1 }}
+      />
+
+      <Typography variant="h6" sx={{ fontWeight: 700, mb: 1 }}>
+        {isPaused ? "Session is paused" : "Active session in progress"}
+      </Typography>
+      <Typography color="text.secondary">
+        {isPaused
+          ? "Use the extension popup to resume or stop the session."
+          : "The planner will be restored when the session ends."}
+      </Typography>
+    </Box>
   );
 }

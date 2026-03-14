@@ -80,6 +80,9 @@ function App() {
     status: "idle",
   } as any);
   const [origin, setOrigin] = useState<string>(DEFAULT_APP_ORIGIN);
+  const [showPauseForm, setShowPauseForm] = useState(false);
+  const [pauseReason, setPauseReason] = useState("");
+  const [showStopConfirm, setShowStopConfirm] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -177,16 +180,41 @@ function App() {
     await openOrFocusUrl(`${base}/report?runId=${encodeURIComponent(runId)}`);
   };
 
-  const handlePause = async () => {
-    await chrome.runtime.sendMessage({ type: "PAUSE_SESSION" });
+  const handlePauseClick = () => {
+    setShowPauseForm(true);
+    setPauseReason("");
+  };
+
+  const handlePauseSubmit = async () => {
+    await chrome.runtime.sendMessage({
+      type: "PAUSE_SESSION",
+      payload: { reason: pauseReason },
+    });
+    setShowPauseForm(false);
+    setPauseReason("");
+  };
+
+  const handlePauseCancel = () => {
+    setShowPauseForm(false);
+    setPauseReason("");
   };
 
   const handleResume = async () => {
     await chrome.runtime.sendMessage({ type: "RESUME_SESSION" });
   };
 
-  const handleStop = async () => {
+  const handleStopClick = () => {
+    setShowPauseForm(false);
+    setShowStopConfirm(true);
+  };
+
+  const handleStopConfirm = async () => {
     await chrome.runtime.sendMessage({ type: "STOP_SESSION" });
+    setShowStopConfirm(false);
+  };
+
+  const handleStopCancel = () => {
+    setShowStopConfirm(false);
   };
 
   return (
@@ -205,7 +233,7 @@ function App() {
           gap: 10,
         }}
       >
-        <div style={{ fontWeight: 900, fontSize: 16 }}>Session Extension</div>
+        <div style={{ fontWeight: 900, fontSize: 16 }}>Session State</div>
         <button
           onClick={openPlanner}
           style={{
@@ -232,40 +260,130 @@ function App() {
 
       {runningInfo && (
         <div style={cardStyle}>
-          <div style={{ fontWeight: 800 }}>{runningInfo.title}</div>
+          {showStopConfirm ? (
+            <>
+              <div style={{ fontWeight: 800, marginBottom: 6, color: "#c00" }}>Stop session?</div>
+              <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 12 }}>
+                This will end the session immediately. No reflection will be recorded.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={handleStopConfirm}
+                  style={{ ...btnBase, background: "#c00", color: "white", border: "none" }}
+                >
+                  Yes, Stop
+                </button>
+                <button
+                  onClick={handleStopCancel}
+                  style={{ ...btnBase, background: "#f5f5f5", color: "#555" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : showPauseForm ? (
+            <>
+              <div style={{ fontWeight: 800, marginBottom: 8 }}>
+                Why are you pausing?
+              </div>
+              <textarea
+                autoFocus
+                value={pauseReason}
+                onChange={(e) => setPauseReason(e.target.value)}
+                placeholder="Reason for pausing..."
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  minHeight: 72,
+                  padding: 8,
+                  fontSize: 13,
+                  borderRadius: 8,
+                  border: "1px solid rgba(0,0,0,0.2)",
+                  resize: "vertical",
+                  fontFamily: "inherit",
+                }}
+              />
+              <div style={{ marginTop: 10, display: "flex", gap: 8 }}>
+                <button
+                  onClick={handlePauseSubmit}
+                  style={{ ...btnBase, background: "#111", color: "white" }}
+                >
+                  Confirm Pause
+                </button>
+                <button
+                  onClick={handlePauseCancel}
+                  style={{ ...btnBase, background: "#f5f5f5", color: "#555" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div style={{ fontWeight: 800 }}>{runningInfo.title}</div>
 
-          <div style={{ marginTop: 8, fontSize: 13, opacity: 0.8 }}>
-            <div>
-              <b>Started:</b> {formatDateTime(runningInfo.startedAt)}
-            </div>
-            <div style={{ marginTop: 4 }}>
-              <b>Ends:</b> {formatTime(runningInfo.endsAt)}
-            </div>
-          </div>
+              <div style={{ marginTop: 8, fontSize: 13, opacity: 0.8 }}>
+                <div>
+                  <b>Started:</b> {formatDateTime(runningInfo.startedAt)}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  <b>Ends:</b> {formatTime(runningInfo.endsAt)}
+                </div>
+              </div>
 
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.65 }}>
-            You can switch tabs — the overlay modal will still appear.
-          </div>
+              <div style={{ marginTop: 10, fontSize: 12, opacity: 0.65 }}>
+                You can switch tabs — the overlay modal will still appear.
+              </div>
 
-          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
-            <button
-              onClick={handlePause}
-              style={{ ...btnBase, background: "#f5f5f5", color: "#111" }}
-            >
-              Pause
-            </button>
-            <button
-              onClick={handleStop}
-              style={{ ...btnBase, background: "#fff0f0", color: "#c00", border: "1px solid rgba(200,0,0,0.25)" }}
-            >
-              Stop Session
-            </button>
-          </div>
+              <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                <button
+                  onClick={handlePauseClick}
+                  style={{ ...btnBase, background: "#f5f5f5", color: "#111" }}
+                >
+                  Pause
+                </button>
+                <button
+                  onClick={handleStopClick}
+                  style={{
+                    ...btnBase,
+                    background: "#fff0f0",
+                    color: "#c00",
+                    border: "1px solid rgba(200,0,0,0.25)",
+                  }}
+                >
+                  Stop Session
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
       {pausedInfo && (
         <div style={{ ...cardStyle, background: "#fffbf0" }}>
+          {showStopConfirm ? (
+            <>
+              <div style={{ fontWeight: 800, marginBottom: 6, color: "#c00" }}>Stop session?</div>
+              <div style={{ fontSize: 13, opacity: 0.75, marginBottom: 12 }}>
+                This will end the session immediately. No reflection will be recorded.
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  onClick={handleStopConfirm}
+                  style={{ ...btnBase, background: "#c00", color: "white", border: "none" }}
+                >
+                  Yes, Stop
+                </button>
+                <button
+                  onClick={handleStopCancel}
+                  style={{ ...btnBase, background: "#f5f5f5", color: "#555" }}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+          <>
           <div style={{ fontWeight: 900, fontSize: 15 }}>Session Paused ⏸</div>
 
           <div style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>
@@ -288,12 +406,19 @@ function App() {
               Resume
             </button>
             <button
-              onClick={handleStop}
-              style={{ ...btnBase, background: "#fff0f0", color: "#c00", border: "1px solid rgba(200,0,0,0.25)" }}
+              onClick={handleStopClick}
+              style={{
+                ...btnBase,
+                background: "#fff0f0",
+                color: "#c00",
+                border: "1px solid rgba(200,0,0,0.25)",
+              }}
             >
               Stop Session
             </button>
           </div>
+          </>
+          )}
         </div>
       )}
 
@@ -322,7 +447,9 @@ function App() {
       {completedInfo && (
         <div style={cardStyle}>
           <div style={{ fontWeight: 900 }}>
-            {completedInfo.endedEarly ? "Session stopped 🛑" : "Session complete ✅"}
+            {completedInfo.endedEarly
+              ? "Session stopped 🛑"
+              : "Session complete ✅"}
           </div>
 
           <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85 }}>

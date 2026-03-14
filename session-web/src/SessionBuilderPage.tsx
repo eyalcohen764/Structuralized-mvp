@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   AppBar,
   Toolbar,
@@ -108,6 +108,12 @@ function formatPreset(m: number): string {
   return rem === 0 ? `${h}h` : `${h}h ${rem}m`;
 }
 
+function formatClockRange(startMs: number, endMs: number): string {
+  const fmt = (ms: number) =>
+    new Date(ms).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return `${fmt(startMs)} – ${fmt(endMs)}`;
+}
+
 export default function App() {
   const [blocks, setBlocks] = useState<SessionBlock[]>([
     { id: uid(), type: "work", minutes: 25, topic: "Deep work" },
@@ -120,6 +126,24 @@ export default function App() {
 
   const [extensionDialogOpen, setExtensionDialogOpen] = useState(false);
   const [extensionIdInput, setExtensionIdInput] = useState(getExtensionId());
+
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 10_000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Cumulative clock-time estimate for each block, assuming session starts right now
+  const blockSchedule = useMemo(() => {
+    let cursor = now;
+    return blocks.map((b) => {
+      const start = cursor;
+      const end = cursor + (b.minutes || 0) * 60_000;
+      cursor = end;
+      return { start, end };
+    });
+  }, [blocks, now]);
 
   const total = useMemo(() => totalMinutes(blocks), [blocks]);
 
@@ -544,6 +568,16 @@ export default function App() {
                         }}
                         helperText="0–59"
                       />
+                    </Stack>
+
+                    {/* Live clock estimate */}
+                    <Stack justifyContent="center" sx={{ minWidth: 110 }}>
+                      <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 700, letterSpacing: "0.05em" }}>
+                        EST. TIME
+                      </Typography>
+                      <Typography variant="body2" sx={{ fontFamily: "monospace", color: "text.secondary", whiteSpace: "nowrap" }}>
+                        {formatClockRange(blockSchedule[idx].start, blockSchedule[idx].end)}
+                      </Typography>
                     </Stack>
 
                     {/* Topic (free input) only for Work */}

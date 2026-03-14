@@ -14,7 +14,7 @@ function SessionGateway() {
   useEffect(() => {
     const check = async () => {
       const s = await getSessionState();
-      setStatus(s === "running" || s === "awaiting_feedback" ? "active" : "inactive");
+      setStatus(s === "running" || s === "paused" || s === "awaiting_feedback" ? "active" : "inactive");
     };
 
     check();

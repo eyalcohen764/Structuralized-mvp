@@ -13,7 +13,7 @@ import {
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { Link as RouterLink } from "react-router-dom";
 import { getExtensionIdAsync } from "./config";
-import type { PauseRecord, ReportBlock, SessionReport } from "../../extension/src/shared";
+import type { ReportBlock, SessionReport } from "../../extension/src/shared";
 
 // ─── Planned timeline ────────────────────────────────────────────────────────
 
@@ -65,62 +65,45 @@ function formatDelta(deltaMs: number): string {
 // ─── Pause segments ───────────────────────────────────────────────────────────
 
 type Segment =
-  | { kind: "work"; label: string; startedAt: number; endedAt: number }
-  | { kind: "pause"; startedAt: number; endedAt: number };
+  | { kind: "work"; startedAt: number; endedAt: number }
+  | { kind: "pause"; startedAt: number; endedAt: number; reason?: string };
+
+function workLabel(block: ReportBlock): string {
+  if (block.type === "break") return "BREAK";
+  if (block.type === "dynamic") return block.topic ? block.topic.toUpperCase() : "DYNAMIC";
+  return block.topic ? block.topic.toUpperCase() : "WORK";
+}
 
 function buildSegments(block: ReportBlock): Segment[] {
   const pauses = block.pauses ?? [];
-  if (pauses.length === 0) return [];
-
   const segments: Segment[] = [];
   let cursor = block.startedAt;
 
   for (const p of pauses) {
     if (p.pausedAt > cursor) {
-      segments.push({ kind: "work", label: "Work", startedAt: cursor, endedAt: p.pausedAt });
+      segments.push({ kind: "work", startedAt: cursor, endedAt: p.pausedAt });
     }
-    segments.push({ kind: "pause", startedAt: p.pausedAt, endedAt: p.resumedAt });
+    segments.push({ kind: "pause", startedAt: p.pausedAt, endedAt: p.resumedAt, reason: p.reason });
     cursor = p.resumedAt;
   }
 
   if (cursor < block.endedAt) {
-    segments.push({ kind: "work", label: "Work", startedAt: cursor, endedAt: block.endedAt });
+    segments.push({ kind: "work", startedAt: cursor, endedAt: block.endedAt });
   }
 
   return segments;
 }
 
-function PauseBreakdown({ pauses, blockStartedAt, blockEndedAt }: {
-  pauses: PauseRecord[];
-  blockStartedAt: number;
-  blockEndedAt: number;
-}) {
-  const segments = buildSegments({ pauses } as any as ReportBlock & { startedAt: number; endedAt: number });
-  // Re-derive since we called buildSegments with a partial object above — safer to inline:
-  const allSegments: Segment[] = [];
-  let cursor = blockStartedAt;
-
-  for (const p of pauses) {
-    if (p.pausedAt > cursor) {
-      allSegments.push({ kind: "work", label: "Work", startedAt: cursor, endedAt: p.pausedAt });
-    }
-    allSegments.push({ kind: "pause", startedAt: p.pausedAt, endedAt: p.resumedAt });
-    cursor = p.resumedAt;
-  }
-  if (cursor < blockEndedAt) {
-    allSegments.push({ kind: "work", label: "Work", startedAt: cursor, endedAt: blockEndedAt });
-  }
-
-  void segments; // unused, allSegments is the correct derivation
+function PauseBreakdown({ block }: { block: ReportBlock }) {
+  const segments = buildSegments(block);
+  const label = workLabel(block);
 
   return (
     <Stack spacing={0.5} sx={{ mt: 1 }}>
-      {allSegments.map((seg, i) => (
+      {segments.map((seg, i) => (
         <Stack
           key={i}
-          direction="row"
-          alignItems="center"
-          spacing={1.5}
+          spacing={0.25}
           sx={{
             px: 1.5,
             py: 0.75,
@@ -131,22 +114,29 @@ function PauseBreakdown({ pauses, blockStartedAt, blockEndedAt }: {
               : "1px solid rgba(0,0,0,0.07)",
           }}
         >
-          <Typography
-            variant="caption"
-            sx={{
-              fontWeight: 700,
-              color: seg.kind === "pause" ? "warning.dark" : "text.secondary",
-              minWidth: 40,
-            }}
-          >
-            {seg.kind === "pause" ? "PAUSE" : seg.label.toUpperCase()}
-          </Typography>
-          <Typography variant="caption" sx={{ fontFamily: "monospace", color: "text.secondary" }}>
-            {formatTime(seg.startedAt)} → {formatTime(seg.endedAt)}
-          </Typography>
-          <Typography variant="caption" sx={{ color: "text.disabled" }}>
-            ({formatMinutes(seg.endedAt - seg.startedAt)})
-          </Typography>
+          <Stack direction="row" alignItems="center" spacing={1.5}>
+            <Typography
+              variant="caption"
+              sx={{
+                fontWeight: 700,
+                color: seg.kind === "pause" ? "warning.dark" : "text.secondary",
+                minWidth: 40,
+              }}
+            >
+              {seg.kind === "pause" ? "PAUSE" : label}
+            </Typography>
+            <Typography variant="caption" sx={{ fontFamily: "monospace", color: "text.secondary" }}>
+              {formatTime(seg.startedAt)} → {formatTime(seg.endedAt)}
+            </Typography>
+            <Typography variant="caption" sx={{ color: "text.disabled" }}>
+              ({formatMinutes(seg.endedAt - seg.startedAt)})
+            </Typography>
+          </Stack>
+          {seg.kind === "pause" && seg.reason && (
+            <Typography variant="caption" sx={{ color: "warning.dark", pl: "52px", fontStyle: "italic" }}>
+              "{seg.reason}"
+            </Typography>
+          )}
         </Stack>
       ))}
     </Stack>
@@ -342,11 +332,16 @@ export default function ReportPage() {
                       Block {i + 1} · {String(b.type).toUpperCase()}
                       {b.topic ? ` · ${b.topic}` : ""}
                     </Typography>
-                    <Chip
-                      label={`${b.minutes} min`}
-                      size="small"
-                      variant="outlined"
-                    />
+                    <Stack direction="row" spacing={0.75} alignItems="center">
+                      {report.endedEarly && i === report.blocks.length - 1 && (
+                        <Chip label="🛑 Session stopped here" color="warning" size="small" />
+                      )}
+                      <Chip
+                        label={`${b.minutes} min`}
+                        size="small"
+                        variant="outlined"
+                      />
+                    </Stack>
                   </Stack>
 
                   {/* Planned vs Actual */}
@@ -354,11 +349,7 @@ export default function ReportPage() {
 
                   {/* Pause breakdown (only shown when block has pauses) */}
                   {b.pauses && b.pauses.length > 0 && (
-                    <PauseBreakdown
-                      pauses={b.pauses}
-                      blockStartedAt={b.startedAt}
-                      blockEndedAt={b.endedAt}
-                    />
+                    <PauseBreakdown block={b} />
                   )}
 
                   <Divider sx={{ my: 1 }} />

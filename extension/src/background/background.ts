@@ -379,6 +379,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
 
       const pausedAt = now();
       const remainingMs = Math.max(0, s.currentBlockEndsAt - pausedAt);
+      const pauseReason = String(msg.payload?.reason ?? "").trim() || undefined;
 
       const paused: SessionRuntimeState = {
         status: "paused",
@@ -389,6 +390,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
         currentBlockStartedAt: s.currentBlockStartedAt,
         pausedAt,
         remainingMs,
+        pauseReason,
         currentPauses: s.currentPauses,
         report: s.report,
       };
@@ -407,7 +409,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
 
       const resumedAt = now();
       const newEndsAt = resumedAt + s.remainingMs;
-      const closedPause: PauseRecord = { pausedAt: s.pausedAt, resumedAt };
+      const closedPause: PauseRecord = { pausedAt: s.pausedAt, resumedAt, reason: s.pauseReason };
       const newPauses: PauseRecord[] = [...s.currentPauses, closedPause];
 
       const running: SessionRuntimeState = {
@@ -456,7 +458,7 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
 
       if (s.status === "paused") {
         // Close the open pause at stop time
-        currentPauses = [...s.currentPauses, { pausedAt: s.pausedAt, resumedAt: stoppedAt }];
+        currentPauses = [...s.currentPauses, { pausedAt: s.pausedAt, resumedAt: stoppedAt, reason: s.pauseReason }];
       } else {
         currentPauses = s.currentPauses;
       }
@@ -479,36 +481,24 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
         blocks: [...s.report.blocks, endedReportBlock],
       };
 
-      const awaiting: SessionRuntimeState = {
-        status: "awaiting_feedback",
+      const finalReport: SessionReport = {
+        ...report,
+        endedAt: stoppedAt,
+        endedEarly: true,
+      };
+
+      await chrome.storage.local.set({
+        [REPORT_PREFIX + s.runId]: finalReport,
+        [LATEST_REPORT_KEY]: s.runId,
+      });
+
+      await setState({
+        status: "completed",
         runId: s.runId,
         origin: s.origin,
         plan: s.plan,
-        nextIndex: s.plan.blocks.length, // marks as past-end so submit flow saves the report
-        report,
-        endedBlock: endedReportBlock,
-        endedBlockTitle: endedTitle,
-        nextBlockTitle: "Session stopped",
-        nextBlockNeedsTopic: false,
-        isStopped: true,
-      };
-
-      await setState(awaiting);
-
-      await notifyActiveTab(
-        {
-          type: "SHOW_FEEDBACK_MODAL",
-          payload: {
-            endedTitle,
-            nextTitle: "Session stopped",
-            nextNeedsTopic: false,
-            isFinal: true,
-            runId: s.runId,
-          },
-        } as any,
-        "Session stopped",
-        "Open a normal tab to write your reflection."
-      );
+        report: finalReport,
+      });
 
       sendResponse({ ok: true });
       return;
@@ -543,7 +533,6 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
 
       const nextIndex = (s as any).nextIndex as number;
       const plan = (s as any).plan as SessionPlan;
-      const isStopped = Boolean((s as any).isStopped);
       const isFinalBlock = nextIndex >= plan.blocks.length;
 
       if (isFinalBlock) {
@@ -551,7 +540,6 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
           ...(s as any).report,
           blocks,
           endedAt: now(),
-          ...(isStopped && { endedEarly: true }),
         };
         await chrome.storage.local.set({
           [REPORT_PREFIX + (s as any).runId]: finalReport,

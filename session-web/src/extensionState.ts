@@ -1,6 +1,6 @@
 import { getExtensionIdAsync } from "./config";
 
-type SessionStatus = "idle" | "running" | "awaiting_feedback" | "completed";
+type SessionStatus = "idle" | "running" | "paused" | "awaiting_feedback" | "completed";
 
 export async function getSessionState(): Promise<SessionStatus | null> {
   try {
