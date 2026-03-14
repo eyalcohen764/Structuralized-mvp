@@ -8,41 +8,40 @@ import {
   Alert,
   Divider,
   Button,
+  Box,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import { Link as RouterLink } from "react-router-dom";
 import { getExtensionIdAsync } from "./config";
-import type { ReportBlock, SessionReport } from "../../extension/src/shared";
+import type { PauseRecord, ReportBlock, SessionReport } from "../../extension/src/shared";
 
-type BlockTimestamp = { displayStart: number; displayEnd: number };
+// ─── Planned timeline ────────────────────────────────────────────────────────
+
+type PlannedTimestamp = { plannedStart: number; plannedEnd: number };
 
 /**
- * Computes a gapless wall-clock timeline for each block.
- *
- * Inter-block overhead (reflection typing, dynamic topic selection) is absorbed
- * into the preceding block's display end time, so no dead time appears between blocks.
- *
- * - Block 0 starts at report.startedAt (absorbs any pre-first-block overhead).
- * - Block i starts exactly where block i-1 ended (no gaps).
- * - The last block ends at report.endedAt (or its own endedAt when in-progress).
+ * Reconstructs the ideal planned timeline from the session start time and
+ * each block's planned minutes. Blocks are assumed to follow each other
+ * with no gaps.
  */
-function computeBlockTimestamps(
+function computePlannedTimestamps(
   blocks: ReportBlock[],
   report: SessionReport,
-): BlockTimestamp[] {
-  const result: BlockTimestamp[] = [];
+): PlannedTimestamp[] {
+  const result: PlannedTimestamp[] = [];
+  let cursor = report.startedAt;
 
-  for (let i = 0; i < blocks.length; i++) {
-    const displayStart = i === 0 ? report.startedAt : result[i - 1].displayEnd;
-    const displayEnd =
-      i < blocks.length - 1
-        ? blocks[i + 1].startedAt
-        : (report.endedAt ?? blocks[i].endedAt);
-    result.push({ displayStart, displayEnd });
+  for (const block of blocks) {
+    const plannedStart = cursor;
+    const plannedEnd = cursor + block.minutes * 60_000;
+    result.push({ plannedStart, plannedEnd });
+    cursor = plannedEnd;
   }
 
   return result;
 }
+
+// ─── Formatting helpers ───────────────────────────────────────────────────────
 
 function formatTime(epochMs: number): string {
   return new Date(epochMs).toLocaleTimeString([], {
@@ -52,28 +51,191 @@ function formatTime(epochMs: number): string {
   });
 }
 
+function formatMinutes(ms: number): string {
+  const total = ms / 60_000;
+  return `${Math.round(total * 10) / 10} min`;
+}
+
+function formatDelta(deltaMs: number): string {
+  if (Math.abs(deltaMs) < 15_000) return "—";
+  const sign = deltaMs > 0 ? "+" : "−";
+  return `${sign}${formatMinutes(Math.abs(deltaMs))}`;
+}
+
+// ─── Pause segments ───────────────────────────────────────────────────────────
+
+type Segment =
+  | { kind: "work"; label: string; startedAt: number; endedAt: number }
+  | { kind: "pause"; startedAt: number; endedAt: number };
+
+function buildSegments(block: ReportBlock): Segment[] {
+  const pauses = block.pauses ?? [];
+  if (pauses.length === 0) return [];
+
+  const segments: Segment[] = [];
+  let cursor = block.startedAt;
+
+  for (const p of pauses) {
+    if (p.pausedAt > cursor) {
+      segments.push({ kind: "work", label: "Work", startedAt: cursor, endedAt: p.pausedAt });
+    }
+    segments.push({ kind: "pause", startedAt: p.pausedAt, endedAt: p.resumedAt });
+    cursor = p.resumedAt;
+  }
+
+  if (cursor < block.endedAt) {
+    segments.push({ kind: "work", label: "Work", startedAt: cursor, endedAt: block.endedAt });
+  }
+
+  return segments;
+}
+
+function PauseBreakdown({ pauses, blockStartedAt, blockEndedAt }: {
+  pauses: PauseRecord[];
+  blockStartedAt: number;
+  blockEndedAt: number;
+}) {
+  const segments = buildSegments({ pauses } as any as ReportBlock & { startedAt: number; endedAt: number });
+  // Re-derive since we called buildSegments with a partial object above — safer to inline:
+  const allSegments: Segment[] = [];
+  let cursor = blockStartedAt;
+
+  for (const p of pauses) {
+    if (p.pausedAt > cursor) {
+      allSegments.push({ kind: "work", label: "Work", startedAt: cursor, endedAt: p.pausedAt });
+    }
+    allSegments.push({ kind: "pause", startedAt: p.pausedAt, endedAt: p.resumedAt });
+    cursor = p.resumedAt;
+  }
+  if (cursor < blockEndedAt) {
+    allSegments.push({ kind: "work", label: "Work", startedAt: cursor, endedAt: blockEndedAt });
+  }
+
+  void segments; // unused, allSegments is the correct derivation
+
+  return (
+    <Stack spacing={0.5} sx={{ mt: 1 }}>
+      {allSegments.map((seg, i) => (
+        <Stack
+          key={i}
+          direction="row"
+          alignItems="center"
+          spacing={1.5}
+          sx={{
+            px: 1.5,
+            py: 0.75,
+            borderRadius: 2,
+            background: seg.kind === "pause" ? "rgba(255,200,0,0.1)" : "rgba(0,0,0,0.03)",
+            border: seg.kind === "pause"
+              ? "1px solid rgba(200,150,0,0.25)"
+              : "1px solid rgba(0,0,0,0.07)",
+          }}
+        >
+          <Typography
+            variant="caption"
+            sx={{
+              fontWeight: 700,
+              color: seg.kind === "pause" ? "warning.dark" : "text.secondary",
+              minWidth: 40,
+            }}
+          >
+            {seg.kind === "pause" ? "PAUSE" : seg.label.toUpperCase()}
+          </Typography>
+          <Typography variant="caption" sx={{ fontFamily: "monospace", color: "text.secondary" }}>
+            {formatTime(seg.startedAt)} → {formatTime(seg.endedAt)}
+          </Typography>
+          <Typography variant="caption" sx={{ color: "text.disabled" }}>
+            ({formatMinutes(seg.endedAt - seg.startedAt)})
+          </Typography>
+        </Stack>
+      ))}
+    </Stack>
+  );
+}
+
+// ─── Planned vs Actual row ────────────────────────────────────────────────────
+
+function PlannedActualRow({ block, planned }: {
+  block: ReportBlock;
+  planned: PlannedTimestamp;
+}) {
+  const plannedMs = block.minutes * 60_000;
+  const actualMs = block.endedAt - block.startedAt;
+  const deltaMs = actualMs - plannedMs;
+
+  const deltaColor =
+    Math.abs(deltaMs) < 15_000
+      ? "text.secondary"
+      : deltaMs > 0
+      ? "warning.main"
+      : "info.main";
+
+  return (
+    <Stack direction="row" spacing={1} sx={{ mt: 1, mb: 0.5 }}>
+      {/* Planned */}
+      <Box sx={{ flex: 1 }}>
+        <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 700, letterSpacing: "0.05em" }}>
+          PLANNED
+        </Typography>
+        <Typography sx={{ fontWeight: 600, fontSize: "0.9rem" }}>
+          {formatMinutes(plannedMs)}
+        </Typography>
+        <Typography variant="body2" sx={{ fontFamily: "monospace", color: "text.secondary", fontSize: "0.78rem" }}>
+          {formatTime(planned.plannedStart)} → {formatTime(planned.plannedEnd)}
+        </Typography>
+      </Box>
+
+      {/* Actual */}
+      <Box sx={{ flex: 1 }}>
+        <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 700, letterSpacing: "0.05em" }}>
+          ACTUAL
+        </Typography>
+        <Typography sx={{ fontWeight: 600, fontSize: "0.9rem" }}>
+          {formatMinutes(actualMs)}
+        </Typography>
+        <Typography variant="body2" sx={{ fontFamily: "monospace", color: "text.secondary", fontSize: "0.78rem" }}>
+          {formatTime(block.startedAt)} → {formatTime(block.endedAt)}
+        </Typography>
+      </Box>
+
+      {/* Delta */}
+      <Box sx={{ flex: 0.6 }}>
+        <Typography variant="caption" sx={{ color: "text.disabled", fontWeight: 700, letterSpacing: "0.05em" }}>
+          DELTA
+        </Typography>
+        <Typography sx={{ fontWeight: 600, fontSize: "0.9rem", color: deltaColor }}>
+          {formatDelta(deltaMs)}
+        </Typography>
+      </Box>
+    </Stack>
+  );
+}
+
+// ─── URL helper ──────────────────────────────────────────────────────────────
+
 function runIdFromUrl(): string | null {
   const url = new URL(window.location.href);
   return url.searchParams.get("runId");
 }
+
+// ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function ReportPage() {
   const runId = useMemo(() => runIdFromUrl(), []);
   const [report, setReport] = useState<SessionReport | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
-  const blockTimestamps = useMemo<BlockTimestamp[]>(
-    () => (report ? computeBlockTimestamps(report.blocks, report) : []),
+  const plannedTimestamps = useMemo<PlannedTimestamp[]>(
+    () => (report ? computePlannedTimestamps(report.blocks, report) : []),
     [report],
   );
 
   useEffect(() => {
     setErr(null);
 
-    // If you open this in a non-Chrome env, show a nice error instead of crashing
     if (typeof chrome === "undefined" || !chrome.runtime?.sendMessage) {
       setErr(
-        "Chrome extension messaging isn’t available here. Open this in Chrome with the extension loaded.",
+        "Chrome extension messaging isn't available here. Open this in Chrome with the extension loaded.",
       );
       return;
     }
@@ -132,7 +294,7 @@ export default function ReportPage() {
 
       {!err && !report && (
         <Alert severity="info">
-          No report found yet. Finish a session, then click “View report”.
+          No report found yet. Finish a session, then click "View report".
         </Alert>
       )}
 
@@ -149,7 +311,9 @@ export default function ReportPage() {
               label={`Blocks: ${report.blocks?.length ?? 0}`}
               variant="outlined"
             />
-            {report.endedAt ? (
+            {report.endedEarly ? (
+              <Chip label="Ended Early" color="warning" />
+            ) : report.endedAt ? (
               <Chip label="Completed" color="success" />
             ) : (
               <Chip label="In progress" color="warning" />
@@ -160,13 +324,14 @@ export default function ReportPage() {
 
           <Stack spacing={1.5}>
             {report.blocks.map((b, i) => {
-              const ts = blockTimestamps[i];
+              const planned = plannedTimestamps[i];
               return (
                 <Paper
                   key={b.id ?? i}
                   variant="outlined"
                   sx={{ borderRadius: 3, p: 2 }}
                 >
+                  {/* Header */}
                   <Stack
                     direction="row"
                     justifyContent="space-between"
@@ -184,51 +349,19 @@ export default function ReportPage() {
                     />
                   </Stack>
 
-                  {ts && (
-                    <Stack
-                      direction="row"
-                      alignItems="center"
-                      spacing={1}
-                      sx={{ mt: 0.5, mb: 1.5 }}
-                    >
-                      <Typography
-                        sx={{
-                          fontFamily: "monospace",
-                          fontSize: "1.2rem",
-                          fontWeight: 500,
-                          color: "text.primary",
-                          opacity: 0.75,
-                          letterSpacing: "0.02em",
-                        }}
-                      >
-                        {formatTime(ts.displayStart)}
-                      </Typography>
-                      <Typography
-                        sx={{
-                          color: "text.disabled",
-                          fontSize: "0.8rem",
-                          lineHeight: 1,
-                          userSelect: "none",
-                        }}
-                      >
-                        →
-                      </Typography>
-                      <Typography
-                        sx={{
-                          fontFamily: "monospace",
-                          fontSize: "1.2rem",
-                          fontWeight: 500,
-                          color: "text.primary",
-                          opacity: 0.75,
-                          letterSpacing: "0.02em",
-                        }}
-                      >
-                        {formatTime(ts.displayEnd)}
-                      </Typography>
-                    </Stack>
+                  {/* Planned vs Actual */}
+                  {planned && <PlannedActualRow block={b} planned={planned} />}
+
+                  {/* Pause breakdown (only shown when block has pauses) */}
+                  {b.pauses && b.pauses.length > 0 && (
+                    <PauseBreakdown
+                      pauses={b.pauses}
+                      blockStartedAt={b.startedAt}
+                      blockEndedAt={b.endedAt}
+                    />
                   )}
 
-                  <Divider sx={{ mb: 1 }} />
+                  <Divider sx={{ my: 1 }} />
 
                   <Typography
                     variant="subtitle2"

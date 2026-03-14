@@ -16,6 +16,11 @@ export type SessionPlan = {
   blocks: SessionBlock[];
 };
 
+export type PauseRecord = {
+  pausedAt: number;
+  resumedAt: number;
+};
+
 export type ReportBlock = {
   id: string;
   type: BlockType;
@@ -24,6 +29,7 @@ export type ReportBlock = {
   startedAt: number;
   endedAt: number;
   reflection?: string;
+  pauses?: PauseRecord[];
 };
 
 export type SessionReport = {
@@ -32,6 +38,7 @@ export type SessionReport = {
   startedAt: number;
   endedAt?: number;
   blocks: ReportBlock[];
+  endedEarly?: boolean;
 };
 
 export type SessionRuntimeState =
@@ -44,6 +51,19 @@ export type SessionRuntimeState =
       currentIndex: number;
       currentBlockStartedAt: number;
       currentBlockEndsAt: number;
+      currentPauses: PauseRecord[];
+      report: SessionReport;
+    }
+  | {
+      status: "paused";
+      runId: string;
+      origin?: string;
+      plan: SessionPlan;
+      currentIndex: number;
+      currentBlockStartedAt: number;
+      pausedAt: number;
+      remainingMs: number;
+      currentPauses: PauseRecord[]; // pauses already closed in this block
       report: SessionReport;
     }
   | {
@@ -57,6 +77,7 @@ export type SessionRuntimeState =
       nextBlockNeedsTopic: boolean; // true if next is dynamic
       nextBlockTitle: string;
       endedBlockTitle: string;
+      isStopped?: boolean; // true when user clicked Stop mid-session
     }
   | {
       status: "completed";
@@ -90,16 +111,18 @@ export type Msg =
       type: "SHOW_FEEDBACK_MODAL";
       payload: {
         endedTitle: string;
-        nextTitle: string;          // for final block we’ll set this to "Session complete ✅"
-        nextNeedsTopic: boolean;    // false on final
-        isFinal: boolean;           // ✅ NEW
-        runId: string;              // ✅ NEW (so modal can open report)
+        nextTitle: string;
+        nextNeedsTopic: boolean;
+        isFinal: boolean;
+        runId: string;
       };
     }
   | {
       type: "SUBMIT_BLOCK_FEEDBACK";
       payload: { reflection: string; nextTopic?: string };
     }
-  | { type: "OPEN_REPORT"; payload: { runId: string } } // ✅ NEW
-  | { type: "GET_STATE" };
-
+  | { type: "OPEN_REPORT"; payload: { runId: string } }
+  | { type: "GET_STATE" }
+  | { type: "PAUSE_SESSION" }
+  | { type: "RESUME_SESSION" }
+  | { type: "STOP_SESSION" };

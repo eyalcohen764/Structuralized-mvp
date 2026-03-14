@@ -9,6 +9,7 @@ import {
   type SessionRuntimeState,
   type SessionReport,
   type ReportBlock,
+  type PauseRecord,
   type StartSessionExternalMsg,
 } from "../shared";
 
@@ -125,6 +126,7 @@ async function startBlock(
     currentIndex,
     currentBlockStartedAt: startedAt,
     currentBlockEndsAt: endsAt,
+    currentPauses: [],
     report,
   };
 
@@ -157,7 +159,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const s = await getState();
   if (s.status !== "running") return;
 
-  const { plan, currentIndex, currentBlockStartedAt, currentBlockEndsAt } = s;
+  const { plan, currentIndex, currentBlockStartedAt, currentBlockEndsAt, currentPauses } = s;
   const endedBlock = plan.blocks[currentIndex];
 
   const endedTitle = titleForBlock(currentIndex, plan.blocks.length, endedBlock);
@@ -169,6 +171,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     topic: endedBlock.topic,
     startedAt: currentBlockStartedAt,
     endedAt: currentBlockEndsAt,
+    pauses: currentPauses.length > 0 ? currentPauses : undefined,
   };
 
   const report: SessionReport = {
@@ -179,16 +182,13 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const nextIndex = currentIndex + 1;
   const isLast = nextIndex >= plan.blocks.length;
 
-  // FIX: FINAL BLOCK - stay in awaiting_feedback until user submits reflection.
-  // Previously we saved the report and set status to "completed" immediately, which caused
-  // SUBMIT_BLOCK_FEEDBACK to reject with "Not awaiting feedback" and the last reflection was lost.
   if (isLast) {
     const awaiting: SessionRuntimeState = {
       status: "awaiting_feedback",
       runId: s.runId,
       origin: s.origin,
       plan,
-      nextIndex: plan.blocks.length, // marks "final" (no next block) - used in SUBMIT_BLOCK_FEEDBACK
+      nextIndex: plan.blocks.length,
       report,
       endedBlock: endedReportBlock,
       endedBlockTitle: endedTitle,
@@ -216,7 +216,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     return;
   }
 
-  // ✅ NON-FINAL: show feedback modal and optionally ask for dynamic focus for next block
   const nextBlock = plan.blocks[nextIndex];
   const nextTitle = titleForBlock(nextIndex, plan.blocks.length, nextBlock);
   const nextNeedsTopic = nextBlock.type === "dynamic" && !nextBlock.topic;
@@ -274,14 +273,13 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
       const first = plan.blocks[0];
       const firstTitle = titleForBlock(0, plan.blocks.length, first);
 
-      // ✅ NEW: If first block is dynamic and has no topic, prompt immediately (no timer yet)
       if (first.type === "dynamic" && !first.topic) {
         const startPromptState: SessionRuntimeState = {
           status: "awaiting_feedback",
           runId,
           origin,
           plan,
-          nextIndex: 0, // we will start block 0 after user chooses topic
+          nextIndex: 0,
           report,
           endedBlock: {
             id: "_start_",
@@ -317,7 +315,6 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
         return;
       }
 
-      // Normal: start immediately
       await startBlock(runId, origin, plan, 0, report);
       sendResponse({ ok: true, runId });
       return;
@@ -357,10 +354,9 @@ chrome.runtime.onMessageExternal.addListener((msg: any, _sender, sendResponse) =
   return true;
 });
 
-/** Content -> background (feedback + open report) */
+/** Content / Popup -> background */
 chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
   (async () => {
-    // ✅ Content modal "View report" button should call runtime.sendMessage (internal)
     if (msg?.type === "OPEN_REPORT") {
       const runId = String(msg.payload?.runId ?? "").trim();
       if (!runId) {
@@ -368,6 +364,152 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
         return;
       }
       await openWebReportPage(runId);
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "PAUSE_SESSION") {
+      const s = await getState();
+      if (s.status !== "running") {
+        sendResponse({ ok: false, error: "Not running" });
+        return;
+      }
+
+      await chrome.alarms.clear(ALARM_NAME);
+
+      const pausedAt = now();
+      const remainingMs = Math.max(0, s.currentBlockEndsAt - pausedAt);
+
+      const paused: SessionRuntimeState = {
+        status: "paused",
+        runId: s.runId,
+        origin: s.origin,
+        plan: s.plan,
+        currentIndex: s.currentIndex,
+        currentBlockStartedAt: s.currentBlockStartedAt,
+        pausedAt,
+        remainingMs,
+        currentPauses: s.currentPauses,
+        report: s.report,
+      };
+
+      await setState(paused);
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "RESUME_SESSION") {
+      const s = await getState();
+      if (s.status !== "paused") {
+        sendResponse({ ok: false, error: "Not paused" });
+        return;
+      }
+
+      const resumedAt = now();
+      const newEndsAt = resumedAt + s.remainingMs;
+      const closedPause: PauseRecord = { pausedAt: s.pausedAt, resumedAt };
+      const newPauses: PauseRecord[] = [...s.currentPauses, closedPause];
+
+      const running: SessionRuntimeState = {
+        status: "running",
+        runId: s.runId,
+        origin: s.origin,
+        plan: s.plan,
+        currentIndex: s.currentIndex,
+        currentBlockStartedAt: s.currentBlockStartedAt,
+        currentBlockEndsAt: newEndsAt,
+        currentPauses: newPauses,
+        report: s.report,
+      };
+
+      await setState(running);
+      chrome.alarms.create(ALARM_NAME, { when: newEndsAt });
+
+      const block = s.plan.blocks[s.currentIndex];
+      await notifyActiveTab(
+        {
+          type: "SHOW_RUNNING_OVERLAY",
+          payload: {
+            title: titleForBlock(s.currentIndex, s.plan.blocks.length, block),
+            endsAt: newEndsAt,
+          },
+        } as any,
+        "Session resumed",
+        titleForBlock(s.currentIndex, s.plan.blocks.length, block)
+      );
+
+      sendResponse({ ok: true });
+      return;
+    }
+
+    if (msg?.type === "STOP_SESSION") {
+      const s = await getState();
+      if (s.status !== "running" && s.status !== "paused") {
+        sendResponse({ ok: false, error: "Not running or paused" });
+        return;
+      }
+
+      await chrome.alarms.clear(ALARM_NAME);
+
+      const stoppedAt = now();
+      let currentPauses: PauseRecord[];
+
+      if (s.status === "paused") {
+        // Close the open pause at stop time
+        currentPauses = [...s.currentPauses, { pausedAt: s.pausedAt, resumedAt: stoppedAt }];
+      } else {
+        currentPauses = s.currentPauses;
+      }
+
+      const block = s.plan.blocks[s.currentIndex];
+      const endedTitle = titleForBlock(s.currentIndex, s.plan.blocks.length, block);
+
+      const endedReportBlock: ReportBlock = {
+        id: block.id,
+        type: block.type as any,
+        minutes: block.minutes,
+        topic: block.topic,
+        startedAt: s.currentBlockStartedAt,
+        endedAt: stoppedAt,
+        pauses: currentPauses.length > 0 ? currentPauses : undefined,
+      };
+
+      const report: SessionReport = {
+        ...s.report,
+        blocks: [...s.report.blocks, endedReportBlock],
+      };
+
+      const awaiting: SessionRuntimeState = {
+        status: "awaiting_feedback",
+        runId: s.runId,
+        origin: s.origin,
+        plan: s.plan,
+        nextIndex: s.plan.blocks.length, // marks as past-end so submit flow saves the report
+        report,
+        endedBlock: endedReportBlock,
+        endedBlockTitle: endedTitle,
+        nextBlockTitle: "Session stopped",
+        nextBlockNeedsTopic: false,
+        isStopped: true,
+      };
+
+      await setState(awaiting);
+
+      await notifyActiveTab(
+        {
+          type: "SHOW_FEEDBACK_MODAL",
+          payload: {
+            endedTitle,
+            nextTitle: "Session stopped",
+            nextNeedsTopic: false,
+            isFinal: true,
+            runId: s.runId,
+          },
+        } as any,
+        "Session stopped",
+        "Open a normal tab to write your reflection."
+      );
+
       sendResponse({ ok: true });
       return;
     }
@@ -384,7 +526,6 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
 
       const isStartPrompt = (s as any).endedBlock?.id === "_start_";
 
-      // ✅ Start prompt: reflection is NOT required (we only need nextTopic)
       if (!isStartPrompt && !reflection) {
         sendResponse({ ok: false, error: "Reflection required" });
         return;
@@ -395,7 +536,6 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
         return;
       }
 
-      // attach reflection to the last report block (skip for start prompt)
       let blocks = [...(s as any).report.blocks] as any[];
       if (!isStartPrompt && blocks.length > 0) {
         blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], reflection };
@@ -403,16 +543,15 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
 
       const nextIndex = (s as any).nextIndex as number;
       const plan = (s as any).plan as SessionPlan;
+      const isStopped = Boolean((s as any).isStopped);
       const isFinalBlock = nextIndex >= plan.blocks.length;
 
-      // FIX: Final block - save report with reflection, set completed, don't call startBlock.
-      // When nextIndex >= plan.blocks.length there is no next block; we save the report
-      // (including the reflection we just attached) and transition to completed.
       if (isFinalBlock) {
         const finalReport: SessionReport = {
           ...(s as any).report,
           blocks,
           endedAt: now(),
+          ...(isStopped && { endedEarly: true }),
         };
         await chrome.storage.local.set({
           [REPORT_PREFIX + (s as any).runId]: finalReport,
@@ -429,7 +568,6 @@ chrome.runtime.onMessage.addListener((msg: any, _sender, sendResponse) => {
         return;
       }
 
-      // if next is dynamic, set the topic on that next block
       let planWithTopic = plan;
       if ((s as any).nextBlockNeedsTopic) {
         planWithTopic = {

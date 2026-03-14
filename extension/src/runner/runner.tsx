@@ -23,6 +23,13 @@ function formatDateTime(ts: number) {
   });
 }
 
+function formatDuration(ms: number) {
+  const totalSec = Math.floor(ms / 1000);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}m ${s.toString().padStart(2, "0")}s`;
+}
+
 function titleForBlock(
   index: number,
   total: number,
@@ -50,13 +57,30 @@ async function openOrFocusUrl(url: string) {
   await chrome.tabs.create({ url });
 }
 
+const cardStyle: React.CSSProperties = {
+  border: "1px solid rgba(0,0,0,0.12)",
+  borderRadius: 14,
+  padding: 12,
+  background: "white",
+  boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
+};
+
+const btnBase: React.CSSProperties = {
+  flex: 1,
+  padding: "10px 12px",
+  borderRadius: 12,
+  border: "1px solid rgba(0,0,0,0.2)",
+  fontWeight: 800,
+  cursor: "pointer",
+  fontSize: 13,
+};
+
 function App() {
   const [state, setState] = useState<SessionRuntimeState>({
     status: "idle",
   } as any);
   const [origin, setOrigin] = useState<string>(DEFAULT_APP_ORIGIN);
 
-  // Load origin + state on open, and subscribe to storage changes
   useEffect(() => {
     (async () => {
       setOrigin(await getAppOrigin());
@@ -102,6 +126,19 @@ function App() {
     };
   }, [state]);
 
+  const pausedInfo = useMemo(() => {
+    if (state.status !== "paused") return null;
+
+    const plan = (state as any).plan as SessionPlan;
+    const idx = (state as any).currentIndex as number;
+    const block = plan.blocks[idx];
+
+    return {
+      title: titleForBlock(idx, plan.blocks.length, block),
+      remainingMs: (state as any).remainingMs as number,
+    };
+  }, [state]);
+
   const awaitingInfo = useMemo(() => {
     if (state.status !== "awaiting_feedback") return null;
 
@@ -123,8 +160,9 @@ function App() {
     const totalBlocks = (state as any).report?.blocks?.length as
       | number
       | undefined;
+    const endedEarly = Boolean((state as any).report?.endedEarly);
 
-    return { runId, reportStartedAt, reportEndedAt, totalBlocks };
+    return { runId, reportStartedAt, reportEndedAt, totalBlocks, endedEarly };
   }, [state]);
 
   const openPlanner = async () => {
@@ -137,6 +175,18 @@ function App() {
     const runId = (state as any).runId as string | undefined;
     if (!runId) return;
     await openOrFocusUrl(`${base}/report?runId=${encodeURIComponent(runId)}`);
+  };
+
+  const handlePause = async () => {
+    await chrome.runtime.sendMessage({ type: "PAUSE_SESSION" });
+  };
+
+  const handleResume = async () => {
+    await chrome.runtime.sendMessage({ type: "RESUME_SESSION" });
+  };
+
+  const handleStop = async () => {
+    await chrome.runtime.sendMessage({ type: "STOP_SESSION" });
   };
 
   return (
@@ -181,15 +231,7 @@ function App() {
       )}
 
       {runningInfo && (
-        <div
-          style={{
-            border: "1px solid rgba(0,0,0,0.12)",
-            borderRadius: 14,
-            padding: 12,
-            background: "white",
-            boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
-          }}
-        >
+        <div style={cardStyle}>
           <div style={{ fontWeight: 800 }}>{runningInfo.title}</div>
 
           <div style={{ marginTop: 8, fontSize: 13, opacity: 0.8 }}>
@@ -204,19 +246,59 @@ function App() {
           <div style={{ marginTop: 10, fontSize: 12, opacity: 0.65 }}>
             You can switch tabs — the overlay modal will still appear.
           </div>
+
+          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+            <button
+              onClick={handlePause}
+              style={{ ...btnBase, background: "#f5f5f5", color: "#111" }}
+            >
+              Pause
+            </button>
+            <button
+              onClick={handleStop}
+              style={{ ...btnBase, background: "#fff0f0", color: "#c00", border: "1px solid rgba(200,0,0,0.25)" }}
+            >
+              Stop Session
+            </button>
+          </div>
+        </div>
+      )}
+
+      {pausedInfo && (
+        <div style={{ ...cardStyle, background: "#fffbf0" }}>
+          <div style={{ fontWeight: 900, fontSize: 15 }}>Session Paused ⏸</div>
+
+          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.75 }}>
+            {pausedInfo.title}
+          </div>
+
+          <div style={{ marginTop: 4, fontSize: 12, opacity: 0.6 }}>
+            Remaining: {formatDuration(pausedInfo.remainingMs)}
+          </div>
+
+          <div style={{ marginTop: 8, fontSize: 12, opacity: 0.65 }}>
+            All work content is hidden. No undocumented work possible.
+          </div>
+
+          <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+            <button
+              onClick={handleResume}
+              style={{ ...btnBase, background: "#111", color: "white" }}
+            >
+              Resume
+            </button>
+            <button
+              onClick={handleStop}
+              style={{ ...btnBase, background: "#fff0f0", color: "#c00", border: "1px solid rgba(200,0,0,0.25)" }}
+            >
+              Stop Session
+            </button>
+          </div>
         </div>
       )}
 
       {awaitingInfo && (
-        <div
-          style={{
-            border: "1px solid rgba(0,0,0,0.12)",
-            borderRadius: 14,
-            padding: 12,
-            background: "white",
-            boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
-          }}
-        >
+        <div style={cardStyle}>
           <div style={{ fontWeight: 800 }}>Waiting for your input</div>
           <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85 }}>
             {awaitingInfo.endedTitle && (
@@ -232,22 +314,16 @@ function App() {
             )}
           </div>
           <div style={{ marginTop: 10, fontSize: 12, opacity: 0.65 }}>
-            If you don’t see the modal, click into any normal webpage tab.
+            If you don't see the modal, click into any normal webpage tab.
           </div>
         </div>
       )}
 
       {completedInfo && (
-        <div
-          style={{
-            border: "1px solid rgba(0,0,0,0.12)",
-            borderRadius: 14,
-            padding: 12,
-            background: "white",
-            boxShadow: "0 6px 18px rgba(0,0,0,0.08)",
-          }}
-        >
-          <div style={{ fontWeight: 900 }}>Session complete ✅</div>
+        <div style={cardStyle}>
+          <div style={{ fontWeight: 900 }}>
+            {completedInfo.endedEarly ? "Session stopped 🛑" : "Session complete ✅"}
+          </div>
 
           <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85 }}>
             {completedInfo.reportStartedAt && (
