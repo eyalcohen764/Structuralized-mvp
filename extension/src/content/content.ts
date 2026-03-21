@@ -113,6 +113,32 @@ function closeModal() {
   if (root) root.remove();
 }
 
+/** Defensive defaults when background sends a partial payload (e.g. old cached paths) */
+function normalizeFeedbackModalPayload(
+  p: Extract<Msg, { type: "SHOW_FEEDBACK_MODAL" }>["payload"],
+) {
+  const endedBlockType: BlockType =
+    p.endedBlockType === "work" ||
+    p.endedBlockType === "break" ||
+    p.endedBlockType === "dynamic"
+      ? p.endedBlockType
+      : "work";
+  return {
+    endedTitle: p.endedTitle,
+    nextTitle: p.nextTitle,
+    nextNeedsTopic: p.nextNeedsTopic,
+    isFinal: p.isFinal,
+    runId: p.runId,
+    inputRequired: Boolean(p.inputRequired),
+    snoozeMax: Number.isFinite(p.snoozeMax) ? p.snoozeMax : 0,
+    maxSnoozeMinutes: Number.isFinite(p.maxSnoozeMinutes)
+      ? Math.max(1, p.maxSnoozeMinutes)
+      : 15,
+    snoozeCount: Number.isFinite(p.snoozeCount) ? Math.max(0, p.snoozeCount) : 0,
+    endedBlockType,
+  };
+}
+
 function renderFeedbackModal(
   endedTitle: string,
   nextTitle: string,
@@ -369,17 +395,18 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
   }
 
   if (msg.type === "SHOW_FEEDBACK_MODAL") {
+    const n = normalizeFeedbackModalPayload(msg.payload);
     renderFeedbackModal(
-      msg.payload.endedTitle,
-      msg.payload.nextTitle,
-      msg.payload.nextNeedsTopic,
-      msg.payload.isFinal,
-      msg.payload.runId,
-      msg.payload.inputRequired,
-      msg.payload.snoozeMax,
-      msg.payload.maxSnoozeMinutes,
-      msg.payload.snoozeCount,
-      msg.payload.endedBlockType,
+      n.endedTitle,
+      n.nextTitle,
+      n.nextNeedsTopic,
+      n.isFinal,
+      n.runId,
+      n.inputRequired,
+      n.snoozeMax,
+      n.maxSnoozeMinutes,
+      n.snoozeCount,
+      n.endedBlockType,
     );
     return;
   }

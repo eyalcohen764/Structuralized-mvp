@@ -53,6 +53,9 @@ async function uploadReportToCloudinary(
 // ─── Firestore ────────────────────────────────────────────────────────────────
 
 function reportDocRef(uid: string, runId: string) {
+  if (!db) {
+    throw new Error("Firestore is not configured (missing VITE_FIREBASE_* in .env).");
+  }
   return doc(db, "users", uid, "reports", runId);
 }
 

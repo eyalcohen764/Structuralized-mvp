@@ -75,6 +75,49 @@ function isRestrictedUrl(url: string): boolean {
   );
 }
 
+type AwaitingFeedbackState = Extract<
+  SessionRuntimeState,
+  { status: "awaiting_feedback" }
+>;
+type FeedbackModalPayload = Extract<
+  Msg,
+  { type: "SHOW_FEEDBACK_MODAL" }
+>["payload"];
+
+/** Same fields as alarm-driven modal — keeps Snooze visible after tab/window switches */
+function feedbackModalPayloadFromAwaitingState(
+  s: AwaitingFeedbackState,
+  options?: { nextTitleOverride?: string },
+): FeedbackModalPayload {
+  const { endedBlock, resolvedSettings, snoozeCount, plan, nextIndex } = s;
+  const endedBlockType = endedBlock.type;
+
+  const snoozeMax =
+    endedBlockType === "break"
+      ? (resolvedSettings.returnMaxCount ?? 0)
+      : (resolvedSettings.endMaxCount ?? 0);
+  const maxSnoozeMinutes =
+    endedBlockType === "break"
+      ? (resolvedSettings.returnSnoozeMaxMinutes ?? 10)
+      : (resolvedSettings.endSnoozeMaxMinutes ?? 15);
+
+  return {
+    endedTitle: s.endedBlockTitle,
+    nextTitle: options?.nextTitleOverride ?? s.nextBlockTitle,
+    nextNeedsTopic: s.nextBlockNeedsTopic,
+    isFinal: nextIndex >= plan.blocks.length,
+    runId: s.runId,
+    inputRequired:
+      endedBlockType === "break"
+        ? (resolvedSettings.breakInputRequired ?? false)
+        : (resolvedSettings.inputRequired ?? false),
+    snoozeMax,
+    maxSnoozeMinutes,
+    snoozeCount,
+    endedBlockType,
+  };
+}
+
 async function notifyActiveTab(msg: Msg, fallbackTitle: string, fallbackBody: string) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -316,16 +359,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   const nextIndex = currentIndex + 1;
   const isLast = nextIndex >= plan.blocks.length;
 
-  // Compute snooze limits for the ended block type
-  const snoozeMax =
-    endedBlock.type === "break"
-      ? (resolvedSettings.returnMaxCount ?? 0)
-      : (resolvedSettings.endMaxCount ?? 0);
-  const maxSnoozeMinutes =
-    endedBlock.type === "break"
-      ? (resolvedSettings.returnSnoozeMaxMinutes ?? 10)
-      : (resolvedSettings.endSnoozeMaxMinutes ?? 15);
-
   if (isLast) {
     const awaiting: SessionRuntimeState = {
       status: "awaiting_feedback",
@@ -348,20 +381,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await notifyAllWindowsFeedbackModal(
       {
         type: "SHOW_FEEDBACK_MODAL",
-        payload: {
-          endedTitle,
-          nextTitle: "Session complete ✅",
-          nextNeedsTopic: false,
-          isFinal: true,
-          runId: s.runId,
-          inputRequired: endedBlock.type === 'break'
-            ? (resolvedSettings.breakInputRequired ?? false)
-            : (resolvedSettings.inputRequired ?? false),
-          snoozeMax,
-          maxSnoozeMinutes,
-          snoozeCount,
-          endedBlockType: endedBlock.type,
-        },
+        payload: feedbackModalPayloadFromAwaitingState(awaiting),
       },
       "Session complete",
       "Open a normal tab to view your report."
@@ -395,20 +415,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   await notifyAllWindowsFeedbackModal(
     {
       type: "SHOW_FEEDBACK_MODAL",
-      payload: {
-        endedTitle,
-        nextTitle,
-        nextNeedsTopic,
-        isFinal: false,
-        runId: s.runId,
-        inputRequired: endedBlock.type === 'break'
-          ? (resolvedSettings.breakInputRequired ?? false)
-          : (resolvedSettings.inputRequired ?? false),
-        snoozeMax,
-        maxSnoozeMinutes,
-        snoozeCount,
-        endedBlockType: endedBlock.type,
-      },
+      payload: feedbackModalPayloadFromAwaitingState(awaiting),
     },
     "Block finished",
     "Open a normal tab to reflect."
@@ -467,18 +474,9 @@ chrome.runtime.onMessageExternal.addListener((msg: unknown, _sender, sendRespons
         await notifyAllWindowsFeedbackModal(
           {
             type: "SHOW_FEEDBACK_MODAL",
-            payload: {
-              endedTitle: "Session starting",
-              nextTitle: `Choose focus for: ${firstTitle}`,
-              nextNeedsTopic: true,
-              isFinal: false,
-              runId,
-              inputRequired: false,
-              snoozeMax: 0,
-              maxSnoozeMinutes: 0,
-              snoozeCount: 0,
-              endedBlockType: "dynamic",
-            },
+            payload: feedbackModalPayloadFromAwaitingState(startPromptState, {
+              nextTitleOverride: `Choose focus for: ${firstTitle}`,
+            }),
           },
           "Session starting",
           "Choose a focus for your first dynamic block."
@@ -867,13 +865,7 @@ async function showFeedbackOnActiveTab(tabId: number) {
 
   const msg: Msg = {
     type: "SHOW_FEEDBACK_MODAL",
-    payload: {
-      endedTitle: s.endedBlockTitle,
-      nextTitle: s.nextBlockTitle,
-      nextNeedsTopic: s.nextBlockNeedsTopic,
-      isFinal: s.nextIndex >= s.plan.blocks.length,
-      runId: s.runId,
-    },
+    payload: feedbackModalPayloadFromAwaitingState(s),
   };
 
   try {

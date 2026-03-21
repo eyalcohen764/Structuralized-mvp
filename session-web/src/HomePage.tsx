@@ -81,18 +81,22 @@ export default function HomePage() {
     <Box sx={{ minHeight: "100vh", background: "linear-gradient(160deg, #f8fafc 0%, #f1f5f9 100%)", position: "relative" }}>
       {/* ── User avatar + logout ── */}
       <Box sx={{ position: "absolute", top: 16, right: 16, display: "flex", alignItems: "center", gap: 1, zIndex: 10 }}>
-        {user?.photoURL && (
-          <Avatar
-            src={user.photoURL}
-            alt={user.displayName ?? "User"}
-            sx={{ width: 34, height: 34 }}
-          />
+        {user && (
+          <>
+            {user.photoURL && (
+              <Avatar
+                src={user.photoURL}
+                alt={user.displayName ?? "User"}
+                sx={{ width: 34, height: 34 }}
+              />
+            )}
+            <Tooltip title="Sign out">
+              <IconButton size="small" onClick={signOut} sx={{ color: "#64748b" }}>
+                <LogoutIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </>
         )}
-        <Tooltip title="Sign out">
-          <IconButton size="small" onClick={signOut} sx={{ color: "#64748b" }}>
-            <LogoutIcon fontSize="small" />
-          </IconButton>
-        </Tooltip>
       </Box>
       {/* ── Hero ── */}
       <Box
