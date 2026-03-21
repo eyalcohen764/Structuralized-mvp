@@ -202,4 +202,5 @@ export type Msg =
   | { type: "PAUSE_SESSION" }
   | { type: "RESUME_SESSION" }
   | { type: "STOP_SESSION" }
-  | { type: "SNOOZE_BLOCK"; payload: { minutes: number } };
+  | { type: "SNOOZE_BLOCK"; payload: { minutes: number } }
+  | { type: "HIDE_FEEDBACK_MODAL" };

@@ -83,6 +83,9 @@ function App() {
   const [showPauseForm, setShowPauseForm] = useState(false);
   const [pauseReason, setPauseReason] = useState("");
   const [showStopConfirm, setShowStopConfirm] = useState(false);
+  const [reflection, setReflection] = useState("");
+  const [topic, setTopic] = useState("");
+  const [feedbackError, setFeedbackError] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -148,9 +151,30 @@ function App() {
     const endedTitle = (state as any).endedBlockTitle as string | undefined;
     const nextTitle = (state as any).nextBlockTitle as string | undefined;
     const needsTopic = Boolean((state as any).nextBlockNeedsTopic);
+    const runId = (state as any).runId as string | undefined;
+    const isStartPrompt = endedTitle === "Session starting";
+    const isFinal = nextTitle === "Session complete ✅" || nextTitle === "Session stopped";
+    const shouldAskTopic = isStartPrompt ? true : !isFinal && needsTopic;
 
-    return { endedTitle, nextTitle, needsTopic };
+    return {
+      endedTitle: endedTitle ?? "",
+      nextTitle: nextTitle ?? "",
+      needsTopic,
+      runId: runId ?? "",
+      isStartPrompt,
+      isFinal,
+      shouldAskTopic,
+    };
   }, [state]);
+
+  // Reset feedback form when new block awaits
+  useEffect(() => {
+    if (awaitingInfo) {
+      setReflection("");
+      setTopic("");
+      setFeedbackError("");
+    }
+  }, [awaitingInfo?.endedTitle, awaitingInfo?.runId]);
 
   const completedInfo = useMemo(() => {
     if (state.status !== "completed") return null;
@@ -217,10 +241,54 @@ function App() {
     setShowStopConfirm(false);
   };
 
+  const handleSubmitFeedback = async () => {
+    if (!awaitingInfo) return;
+    setFeedbackError("");
+
+    const r = reflection.trim();
+    const t = topic.trim();
+
+    if (awaitingInfo.isStartPrompt) {
+      if (!t) {
+        setFeedbackError("Please enter a focus to start the dynamic block.");
+        return;
+      }
+    } else {
+      if (!r) {
+        setFeedbackError("Please enter a reflection to continue.");
+        return;
+      }
+      if (awaitingInfo.shouldAskTopic && !t) {
+        setFeedbackError("Please enter a focus for the next dynamic block.");
+        return;
+      }
+    }
+
+    const res = await chrome.runtime.sendMessage({
+      type: "SUBMIT_BLOCK_FEEDBACK",
+      payload: {
+        reflection: awaitingInfo.isStartPrompt ? "" : r,
+        nextTopic: t || undefined,
+      },
+    });
+
+    if (res?.ok === false) {
+      setFeedbackError(res.error ?? "Something went wrong");
+      return;
+    }
+
+    if (awaitingInfo.isFinal && awaitingInfo.runId) {
+      await chrome.runtime.sendMessage({
+        type: "OPEN_REPORT",
+        payload: { runId: awaitingInfo.runId },
+      });
+    }
+  };
+
   return (
     <div
       style={{
-        width: 340,
+        width: state.status === "awaiting_feedback" ? 400 : 340,
         padding: 14,
         fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, Arial",
       }}
@@ -423,24 +491,108 @@ function App() {
       )}
 
       {awaitingInfo && (
-        <div style={cardStyle}>
-          <div style={{ fontWeight: 800 }}>Waiting for your input</div>
-          <div style={{ marginTop: 8, fontSize: 13, opacity: 0.85 }}>
-            {awaitingInfo.endedTitle && (
-              <div>
-                <b>Just ended:</b> {awaitingInfo.endedTitle}
-              </div>
-            )}
-            {awaitingInfo.nextTitle && (
-              <div style={{ marginTop: 4 }}>
-                <b>Next:</b> {awaitingInfo.nextTitle}
-                {awaitingInfo.needsTopic ? " (needs focus)" : ""}
-              </div>
-            )}
+        <div
+          style={{
+            ...cardStyle,
+            width: "100%",
+            minWidth: 320,
+            maxWidth: 420,
+          }}
+        >
+          <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 8 }}>
+            {awaitingInfo.isStartPrompt
+              ? "Before we begin"
+              : awaitingInfo.isFinal
+                ? "Final block finished"
+                : "Block finished"}
           </div>
-          <div style={{ marginTop: 10, fontSize: 12, opacity: 0.65 }}>
-            If you don't see the modal, click into any normal webpage tab.
+          <div style={{ fontSize: 13, opacity: 0.85, marginBottom: 10 }}>
+            <div>
+              <b>Just ended:</b> {awaitingInfo.endedTitle}
+            </div>
+            <div style={{ marginTop: 4 }}>
+              <b>{awaitingInfo.isFinal ? "Status:" : "Next:"}</b> {awaitingInfo.nextTitle}
+            </div>
           </div>
+
+          {!awaitingInfo.isStartPrompt && (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Quick reflection</div>
+              <textarea
+                value={reflection}
+                onChange={(e) => setReflection(e.target.value)}
+                placeholder="Describe the main things you actually did in practice during this block..."
+                rows={3}
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  borderRadius: 12,
+                  border: "1px solid rgba(0,0,0,0.2)",
+                  padding: 10,
+                  fontSize: 13,
+                  resize: "vertical",
+                  fontFamily: "inherit",
+                  marginBottom: 10,
+                }}
+              />
+            </>
+          )}
+
+          {awaitingInfo.shouldAskTopic && (
+            <>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>
+                {awaitingInfo.isStartPrompt
+                  ? "What is the focus of this first block?"
+                  : "Dynamic focus for the next block"}
+              </div>
+              <input
+                value={topic}
+                onChange={(e) => setTopic(e.target.value)}
+                placeholder={
+                  awaitingInfo.isStartPrompt
+                    ? "What are you focusing on now?"
+                    : "What are you focusing on next?"
+                }
+                style={{
+                  width: "100%",
+                  boxSizing: "border-box",
+                  borderRadius: 12,
+                  border: "1px solid rgba(0,0,0,0.2)",
+                  padding: 10,
+                  fontSize: 13,
+                  fontFamily: "inherit",
+                  marginBottom: 10,
+                }}
+              />
+            </>
+          )}
+
+          {feedbackError && (
+            <div style={{ color: "#b00020", fontSize: 12, marginBottom: 8 }}>
+              {feedbackError}
+            </div>
+          )}
+
+          <button
+            onClick={handleSubmitFeedback}
+            style={{
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: "1px solid rgba(0,0,0,0.2)",
+              background: "#111",
+              color: "white",
+              fontWeight: 800,
+              cursor: "pointer",
+              fontSize: 13,
+            }}
+          >
+            {awaitingInfo.isStartPrompt
+              ? "Start"
+              : awaitingInfo.isFinal
+                ? "Complete"
+                : "Continue"}
+          </button>
         </div>
       )}
 

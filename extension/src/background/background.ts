@@ -66,6 +66,14 @@ async function createEphemeralNotification(
   return id;
 }
 
+function isRestrictedUrl(url: string): boolean {
+  return (
+    url.startsWith("chrome://") ||
+    url.startsWith("chrome-extension://") ||
+    url.startsWith("https://chrome.google.com/webstore")
+  );
+}
+
 async function notifyActiveTab(msg: Msg, fallbackTitle: string, fallbackBody: string) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -75,12 +83,7 @@ async function notifyActiveTab(msg: Msg, fallbackTitle: string, fallbackBody: st
   }
 
   const url = tab.url ?? "";
-  const isRestricted =
-    url.startsWith("chrome://") ||
-    url.startsWith("chrome-extension://") ||
-    url.startsWith("https://chrome.google.com/webstore");
-
-  if (isRestricted) {
+  if (isRestrictedUrl(url)) {
     await createEphemeralNotification(fallbackTitle, fallbackBody, 60_000);
     return;
   }
@@ -89,6 +92,47 @@ async function notifyActiveTab(msg: Msg, fallbackTitle: string, fallbackBody: st
     await sendOrInject(tab.id, msg);
   } catch {
     await createEphemeralNotification(fallbackTitle, fallbackBody, 60_000);
+  }
+}
+
+/** Broadcast feedback modal to active tab of EVERY window so it follows the user */
+async function notifyAllWindowsFeedbackModal(
+  msg: Extract<Msg, { type: "SHOW_FEEDBACK_MODAL" }>,
+  fallbackTitle: string,
+  fallbackBody: string
+) {
+  const windows = await chrome.windows.getAll({ populate: true });
+  let anySent = false;
+
+  for (const win of windows) {
+    const activeTab = win.tabs?.find((t) => t.active && t.id);
+    if (!activeTab?.id) continue;
+
+    const url = activeTab.url ?? "";
+    if (isRestrictedUrl(url)) continue;
+
+    try {
+      await sendOrInject(activeTab.id, msg);
+      anySent = true;
+    } catch {
+      // skip this tab
+    }
+  }
+
+  if (!anySent) {
+    await createEphemeralNotification(fallbackTitle, fallbackBody, 60_000);
+  }
+}
+
+async function hideFeedbackModalAllTabs() {
+  const tabs = await chrome.tabs.query({});
+  for (const tab of tabs) {
+    if (!tab.id) continue;
+    try {
+      await chrome.tabs.sendMessage(tab.id, { type: "HIDE_FEEDBACK_MODAL" });
+    } catch {
+      // Content script not loaded (restricted page, etc.) — ignore
+    }
   }
 }
 
@@ -261,7 +305,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
     await setState(awaiting);
 
-    await notifyActiveTab(
+    await notifyAllWindowsFeedbackModal(
       {
         type: "SHOW_FEEDBACK_MODAL",
         payload: {
@@ -308,7 +352,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
   await setState(awaiting);
 
-  await notifyActiveTab(
+  await notifyAllWindowsFeedbackModal(
     {
       type: "SHOW_FEEDBACK_MODAL",
       payload: {
@@ -380,7 +424,7 @@ chrome.runtime.onMessageExternal.addListener((msg: unknown, _sender, sendRespons
 
         await setState(startPromptState);
 
-        await notifyActiveTab(
+        await notifyAllWindowsFeedbackModal(
           {
             type: "SHOW_FEEDBACK_MODAL",
             payload: {
@@ -605,6 +649,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
         plan: s.plan,
         report: finalReport,
       });
+      await hideFeedbackModalAllTabs();
 
       sendResponse({ ok: true });
       return;
@@ -736,6 +781,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
           plan,
           report: finalReport,
         });
+        await hideFeedbackModalAllTabs();
         sendResponse({ ok: true });
         return;
       }
@@ -753,6 +799,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       const report: SessionReport = { ...s.report, blocks };
 
       await startBlock(s.runId, s.origin, planWithTopic, nextIndex, report);
+      await hideFeedbackModalAllTabs();
       sendResponse({ ok: true });
       return;
     }
@@ -765,4 +812,47 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 
 chrome.runtime.onInstalled.addListener(async () => {
   await setState({ status: "idle" });
+});
+
+async function showFeedbackOnActiveTab(tabId: number) {
+  const s = await getState();
+  if (s.status !== "awaiting_feedback") return;
+
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+  if (!tab?.url || isRestrictedUrl(tab.url)) return;
+
+  const msg: Msg = {
+    type: "SHOW_FEEDBACK_MODAL",
+    payload: {
+      endedTitle: s.endedBlockTitle,
+      nextTitle: s.nextBlockTitle,
+      nextNeedsTopic: s.nextBlockNeedsTopic,
+      isFinal: s.nextIndex >= s.plan.blocks.length,
+      runId: s.runId,
+    },
+  };
+
+  try {
+    await sendOrInject(tabId, msg);
+  } catch {
+    // tab may not support content scripts
+  }
+}
+
+chrome.tabs.onActivated.addListener((info) => {
+  showFeedbackOnActiveTab(info.tabId);
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) return;
+  const [tab] = await chrome.tabs.query({ active: true, windowId });
+  if (tab?.id) {
+    showFeedbackOnActiveTab(tab.id);
+  }
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "complete") return;
+  if (!tab.active) return;
+  showFeedbackOnActiveTab(tabId);
 });

@@ -360,4 +360,9 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
     );
     return;
   }
+
+  if (msg.type === "HIDE_FEEDBACK_MODAL") {
+    closeModal();
+    return;
+  }
 });
