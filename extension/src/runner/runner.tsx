@@ -4,6 +4,7 @@ import {
   STORAGE_KEY,
   APP_ORIGIN_KEY,
   DEFAULT_APP_ORIGIN,
+  formatRemainingHms,
   type SessionRuntimeState,
   type SessionPlan,
 } from "../shared";
@@ -89,6 +90,7 @@ function App() {
   const [showSnoozeForm, setShowSnoozeForm] = useState(false);
   const [snoozeMinutes, setSnoozeMinutes] = useState("5");
   const [snoozeError, setSnoozeError] = useState("");
+  const [nowTick, setNowTick] = useState(Date.now());
 
   useEffect(() => {
     (async () => {
@@ -134,6 +136,16 @@ function App() {
       runId: (state as any).runId as string,
     };
   }, [state]);
+
+  useEffect(() => {
+    if (!runningInfo) return;
+    const id = setInterval(() => setNowTick(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [!!runningInfo]);
+
+  const blockRemaining = runningInfo
+    ? formatRemainingHms(runningInfo.endsAt - nowTick)
+    : "";
 
   const pausedInfo = useMemo(() => {
     if (state.status !== "paused") return null;
@@ -446,7 +458,19 @@ function App() {
             <>
               <div style={{ fontWeight: 800 }}>{runningInfo.title}</div>
 
-              <div style={{ marginTop: 8, fontSize: 13, opacity: 0.8 }}>
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 20,
+                  fontWeight: 900,
+                  fontVariantNumeric: "tabular-nums",
+                  letterSpacing: "-0.5px",
+                }}
+              >
+                {blockRemaining}
+              </div>
+
+              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
                 <div>
                   <b>Started:</b> {formatDateTime(runningInfo.startedAt)}
                 </div>

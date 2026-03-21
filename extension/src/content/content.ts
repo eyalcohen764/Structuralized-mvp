@@ -1,3 +1,4 @@
+import { formatRemainingHms } from "../shared";
 import type { BlockType, Msg } from "../shared";
 
 const OVERLAY_ID = "session-ext-overlay-root";
@@ -59,7 +60,18 @@ function formatTime(ts: number) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+let runningCountdownInterval: ReturnType<typeof setInterval> | null = null;
+
+function clearRunningCountdown() {
+  if (runningCountdownInterval !== null) {
+    clearInterval(runningCountdownInterval);
+    runningCountdownInterval = null;
+  }
+}
+
 function renderRunning(title: string, endsAt: number, subtitle?: string) {
+  clearRunningCountdown();
+
   const root = ensureOverlayRoot();
   root.innerHTML = "";
 
@@ -69,21 +81,47 @@ function renderRunning(title: string, endsAt: number, subtitle?: string) {
   card.innerHTML = `
     <div style="font-weight:800;margin-bottom:6px;color:${LIGHT.text}">${title}</div>
     ${subtitle ? `<div style="font-size:13px;color:${LIGHT.textMuted};margin-bottom:6px">${subtitle}</div>` : ""}
-    <div style="font-size:14px;color:${LIGHT.textMuted};margin-bottom:10px">
+    <div style="font-size:14px;color:${LIGHT.textMuted};margin-bottom:4px">
       Ends at <b style="color:${LIGHT.text}">${formatTime(endsAt)}</b>
     </div>
-    <div style="font-size:12px;color:${LIGHT.textMuted}">This will auto-hide in ~20 seconds.</div>
   `;
+
+  const countdownEl = document.createElement("div");
+  countdownEl.style.cssText = `font-size:15px;font-weight:700;color:${LIGHT.text};margin-bottom:10px;font-variant-numeric:tabular-nums;`;
+
+  const updateCountdown = () => {
+    const remaining = endsAt - Date.now();
+    if (remaining <= 0) {
+      countdownEl.textContent = "0s";
+      clearRunningCountdown();
+      return;
+    }
+    countdownEl.textContent = formatRemainingHms(remaining);
+  };
+
+  updateCountdown();
+  runningCountdownInterval = setInterval(updateCountdown, 1000);
+
+  card.appendChild(countdownEl);
+
+  const autoHideNote = document.createElement("div");
+  autoHideNote.style.cssText = `font-size:12px;color:${LIGHT.textMuted};`;
+  autoHideNote.textContent = "This will auto-hide in ~20 seconds.";
+  card.appendChild(autoHideNote);
 
   const btn = document.createElement("button");
   btn.textContent = "Dismiss";
   btn.style.cssText = `margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid ${LIGHT.border};background:${LIGHT.bg};color:${LIGHT.text};cursor:pointer;`;
-  btn.onclick = () => (root.innerHTML = "");
+  btn.onclick = () => {
+    clearRunningCountdown();
+    root.innerHTML = "";
+  };
 
   card.appendChild(btn);
   root.appendChild(card);
 
   window.setTimeout(() => {
+    clearRunningCountdown();
     const r = document.getElementById(OVERLAY_ID);
     if (r) r.innerHTML = "";
   }, 20_000);

@@ -155,6 +155,29 @@ export type SessionRuntimeState =
       report: SessionReport;
     };
 
+// ─── Utility functions ───────────────────────────────────────────────────────
+
+export function computeSessionEndsAt(
+  currentBlockEndsAt: number,
+  currentIndex: number,
+  plan: SessionPlan,
+): number {
+  const remainingBlocksMs = plan.blocks
+    .slice(currentIndex + 1)
+    .reduce((sum, b) => sum + b.minutes * 60_000, 0);
+  return currentBlockEndsAt + remainingBlocksMs;
+}
+
+export function formatRemainingHms(remainingMs: number): string {
+  const totalSec = Math.max(0, Math.ceil(remainingMs / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 
 export const STORAGE_KEY = "session_runtime_v3";
@@ -181,7 +204,7 @@ export type GetReportExternalMsg = {
 export type Msg =
   | {
       type: "SHOW_RUNNING_OVERLAY";
-      payload: { title: string; endsAt: number; subtitle?: string };
+      payload: { title: string; endsAt: number; sessionEndsAt?: number; subtitle?: string };
     }
   | {
       type: "SHOW_FEEDBACK_MODAL";

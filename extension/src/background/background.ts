@@ -6,6 +6,7 @@ import {
   REPORT_PREFIX,
   LATEST_REPORT_KEY,
   resolveSettings,
+  computeSessionEndsAt,
   type BlockSettings,
   type Msg,
   type PauseRecord,
@@ -220,17 +221,6 @@ function finalizeSnoozes(
 
   const all = [...prior, ...newRecord];
   return all.length > 0 ? all : undefined;
-}
-
-function computeSessionEndsAt(
-  currentBlockEndsAt: number,
-  currentIndex: number,
-  plan: SessionPlan,
-): number {
-  const remainingBlocksMs = plan.blocks
-    .slice(currentIndex + 1)
-    .reduce((sum, b) => sum + b.minutes * 60_000, 0);
-  return currentBlockEndsAt + remainingBlocksMs;
 }
 
 function scheduleRemindAlarm(plan: SessionPlan, currentIndex: number): void {
