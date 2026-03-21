@@ -3,6 +3,27 @@ import type { BlockType, Msg } from "../shared";
 const OVERLAY_ID = "session-ext-overlay-root";
 const MODAL_ID = "session-ext-modal-root";
 
+let feedbackAudio: HTMLAudioElement | null = null;
+
+function startFeedbackAudio() {
+  stopFeedbackAudio();
+  const url = chrome.runtime.getURL("remembering-these-places_E_minor.wav");
+  feedbackAudio = new Audio(url);
+  feedbackAudio.loop = true;
+  feedbackAudio.volume = 0.7;
+  feedbackAudio.play().catch(() => {
+    // Autoplay may be blocked; silently ignore — user can interact and audio will play next time
+  });
+}
+
+function stopFeedbackAudio() {
+  if (feedbackAudio) {
+    feedbackAudio.pause();
+    feedbackAudio.currentTime = 0;
+    feedbackAudio = null;
+  }
+}
+
 /** Always light theme - prevents inheriting dark styles from the page */
 const LIGHT = {
   bg: "#fff",
@@ -87,6 +108,7 @@ function ensureModalRoot() {
 }
 
 function closeModal() {
+  stopFeedbackAudio();
   const root = document.getElementById(MODAL_ID);
   if (root) root.remove();
 }
@@ -104,6 +126,7 @@ function renderFeedbackModal(
   endedBlockType: BlockType,
 ) {
   clearOverlay();
+  startFeedbackAudio();
 
   const isStartPrompt = endedTitle === "Session starting";
   const snoozesLeft = snoozeMax - snoozeCount;
@@ -363,6 +386,39 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
 
   if (msg.type === "HIDE_FEEDBACK_MODAL") {
     closeModal();
+    return;
+  }
+
+  if (msg.type === "SPEAK_TIME_UPDATE") {
+    const { sessionEndsAt } = msg.payload;
+    const remainingMs = sessionEndsAt - Date.now();
+
+    const timeStr = new Date().toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+    });
+
+    let remainingStr: string;
+    if (remainingMs < 60_000) {
+      remainingStr = "less than a minute";
+    } else {
+      const totalMinutes = Math.round(remainingMs / 60_000);
+      const hours = Math.floor(totalMinutes / 60);
+      const minutes = totalMinutes % 60;
+      if (hours > 0 && minutes > 0) {
+        remainingStr = `${hours} hour${hours > 1 ? "s" : ""} and ${minutes} minute${minutes > 1 ? "s" : ""}`;
+      } else if (hours > 0) {
+        remainingStr = `${hours} hour${hours > 1 ? "s" : ""}`;
+      } else {
+        remainingStr = `${minutes} minute${minutes > 1 ? "s" : ""}`;
+      }
+    }
+
+    const utterance = new SpeechSynthesisUtterance(
+      `It's ${timeStr}. The session ends in ${remainingStr}.`,
+    );
+    speechSynthesis.cancel();
+    speechSynthesis.speak(utterance);
     return;
   }
 });

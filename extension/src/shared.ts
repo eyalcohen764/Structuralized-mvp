@@ -11,6 +11,8 @@ export type BlockSettings = {
   endSnoozeMaxMinutes?: number;
   returnMaxCount?: number;
   returnSnoozeMaxMinutes?: number;
+  workAnnounceEveryMinutes?: number;
+  breakAnnounceEveryMinutes?: number;
 };
 
 export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
@@ -20,6 +22,8 @@ export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
   endSnoozeMaxMinutes: 5,
   returnMaxCount: 0,
   returnSnoozeMaxMinutes: 5,
+  workAnnounceEveryMinutes: 0,
+  breakAnnounceEveryMinutes: 0,
 };
 
 export type SnoozeRecord = {
@@ -156,6 +160,7 @@ export type SessionRuntimeState =
 export const STORAGE_KEY = "session_runtime_v3";
 export const APP_ORIGIN_KEY = "app_origin_v3";
 export const ALARM_NAME = "session_tick_v3";
+export const REMIND_ALARM_NAME = "session_remind_v3";
 export const REPORT_PREFIX = "report_";
 export const LATEST_REPORT_KEY = "latest_report_runId_v3";
 
@@ -203,4 +208,5 @@ export type Msg =
   | { type: "RESUME_SESSION" }
   | { type: "STOP_SESSION" }
   | { type: "SNOOZE_BLOCK"; payload: { minutes: number } }
-  | { type: "HIDE_FEEDBACK_MODAL" };
+  | { type: "HIDE_FEEDBACK_MODAL" }
+  | { type: "SPEAK_TIME_UPDATE"; payload: { sessionEndsAt: number } };

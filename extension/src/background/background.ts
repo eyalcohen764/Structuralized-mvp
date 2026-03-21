@@ -1,5 +1,6 @@
 import {
   ALARM_NAME,
+  REMIND_ALARM_NAME,
   APP_ORIGIN_KEY,
   STORAGE_KEY,
   REPORT_PREFIX,
@@ -178,6 +179,29 @@ function finalizeSnoozes(
   return all.length > 0 ? all : undefined;
 }
 
+function computeSessionEndsAt(
+  currentBlockEndsAt: number,
+  currentIndex: number,
+  plan: SessionPlan,
+): number {
+  const remainingBlocksMs = plan.blocks
+    .slice(currentIndex + 1)
+    .reduce((sum, b) => sum + b.minutes * 60_000, 0);
+  return currentBlockEndsAt + remainingBlocksMs;
+}
+
+function scheduleRemindAlarm(plan: SessionPlan, currentIndex: number): void {
+  const resolved = resolveSettings(plan, currentIndex);
+  const blockType = plan.blocks[currentIndex].type;
+  const announceEvery =
+    blockType === "break"
+      ? (resolved.breakAnnounceEveryMinutes ?? 0)
+      : (resolved.workAnnounceEveryMinutes ?? 0);
+  if (announceEvery > 0) {
+    chrome.alarms.create(REMIND_ALARM_NAME, { periodInMinutes: announceEvery });
+  }
+}
+
 async function startBlock(
   runId: string,
   origin: string | undefined,
@@ -209,6 +233,7 @@ async function startBlock(
 
   await setState(running);
   chrome.alarms.create(ALARM_NAME, { when: endsAt });
+  scheduleRemindAlarm(plan, currentIndex);
 
   await notifyActiveTab(
     {
@@ -229,6 +254,21 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name.startsWith(NOTIF_CLEAR_ALARM_PREFIX)) {
     const notifId = alarm.name.slice(NOTIF_CLEAR_ALARM_PREFIX.length);
     await chrome.notifications.clear(notifId);
+    return;
+  }
+
+  if (alarm.name === REMIND_ALARM_NAME) {
+    const s = await getState();
+    if (s.status !== "running") {
+      await chrome.alarms.clear(REMIND_ALARM_NAME);
+      return;
+    }
+    const sessionEndsAt = computeSessionEndsAt(
+      s.currentBlockEndsAt,
+      s.currentIndex,
+      s.plan,
+    );
+    await notifyActiveTab({ type: "SPEAK_TIME_UPDATE", payload: { sessionEndsAt } });
     return;
   }
 
@@ -513,6 +553,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       }
 
       await chrome.alarms.clear(ALARM_NAME);
+      await chrome.alarms.clear(REMIND_ALARM_NAME);
 
       const pausedAt = now();
       const remainingMs = Math.max(0, s.currentBlockEndsAt - pausedAt);
@@ -569,6 +610,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 
       await setState(running);
       chrome.alarms.create(ALARM_NAME, { when: newEndsAt });
+      scheduleRemindAlarm(s.plan, s.currentIndex);
 
       const block = s.plan.blocks[s.currentIndex];
       await notifyActiveTab(
@@ -595,6 +637,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       }
 
       await chrome.alarms.clear(ALARM_NAME);
+      await chrome.alarms.clear(REMIND_ALARM_NAME);
 
       const stoppedAt = now();
       let currentPauses: PauseRecord[];
@@ -711,6 +754,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 
       await setState(running);
       chrome.alarms.create(ALARM_NAME, { when: endsAt });
+      scheduleRemindAlarm(s.plan, endedBlockIndex);
 
       const block = s.plan.blocks[endedBlockIndex];
       await notifyActiveTab(
