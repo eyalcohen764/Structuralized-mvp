@@ -13,7 +13,7 @@ Productivity timer Chrome extension MVP ("Session Blocks") with two parts:
 - **extension/** — Chrome MV3 extension: injects overlays on webpages, manages timed focus blocks, captures user reflections
 - **session-web/** — React website (localhost:5173): provides Start UI and Report viewing
 
-Both are independent TypeScript + React 19 + Vite apps (no monorepo workspace linking).
+Both are independent TypeScript + React 19 + Vite apps (no monorepo workspace linking). **Exception**: `session-web/src/reportStorage.ts` imports `SessionReport` directly from `../../extension/src/shared` — the two projects share types via relative path, not a package.
 
 ## Build & Development Commands
 
@@ -35,6 +35,20 @@ npm run build:watch  # Rebuild on file changes
 ```
 
 Load the extension: chrome://extensions → Developer Mode → Load Unpacked → select `extension/dist/`. The website auto-detects the Extension ID via postMessage (content script responds with `SESSION_BLOCKS_ID`). The ID is saved to localStorage and can be manually overridden in the website's gear icon dialog — handled in `session-web/src/config.ts`.
+
+**Environment variables (`session-web/.env`):**
+
+```
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_MEASUREMENT_ID=
+VITE_CLOUDINARY_CLOUD_NAME=
+VITE_CLOUDINARY_UPLOAD_PRESET=
+```
 
 ## Architecture
 
@@ -66,7 +80,11 @@ Load the extension: chrome://extensions → Developer Mode → Load Unpacked →
 - **`extension/src/runner/runner.tsx`** — Extension popup (React). Shows current state, Pause/Resume/Stop controls with inline confirmation flows.
 - **`session-web/src/SessionBuilderPage.tsx`** — Main session creation UI with block configuration and live clock estimates.
 - **`session-web/src/ReportPage.tsx`** — Displays a completed `SessionReport` with Planned vs Actual comparison, pause segment breakdown, and stopped-block markers.
-- **`session-web/src/App.tsx`** — Routes: `/` (HomePage), `/app` (SessionGateway → ActiveSessionPage or SessionBuilderPage), `/report` (ReportPage).
+- **`session-web/src/App.tsx`** — Routes: `/login`, `/` (HomePage), `/app` (SessionGateway → ActiveSessionPage or SessionBuilderPage), `/report`. All routes except `/login` are wrapped in `RequireAuth`.
+- **`session-web/src/AuthContext.tsx`** — Firebase Auth context: Google sign-in via `signInWithPopup`, exposes `useAuth()` hook (`user`, `loading`, `signInWithGoogle`, `signOut`).
+- **`session-web/src/reportStorage.ts`** — Cloud persistence: uploads `SessionReport` JSON to Cloudinary, saves metadata (`cloudinaryUrl`, timestamps, `blockCount`) to Firestore under `users/{uid}/reports/{runId}`. Idempotent — skips re-upload if already saved.
+- **`session-web/src/extensionState.ts`** — Thin helper that calls `GET_STATE` and returns the session `status` string; used by `SessionGateway` to poll every 4 s.
+- **`session-web/src/config.ts`** — Extension ID resolution: auto-detect via postMessage → localStorage → hardcoded default.
 
 ### Extension Build
 
@@ -98,11 +116,15 @@ idle → running → awaiting_feedback → completed
 
 ### Data Persistence
 
-All state in `chrome.storage.local` with versioned keys (defined in `shared.ts`):
+**Extension** — `chrome.storage.local` with versioned keys (defined in `shared.ts`):
 - `session_runtime_v3` — current `SessionRuntimeState`
 - `report_<runId>` — completed `SessionReport`
 - `latest_report_runId_v3` — runId of the most recent completed session
 - `app_origin_v3` — website origin for opening the report tab
+
+**Website (cloud)** — after a session completes the website uploads the report to two services:
+- **Cloudinary** — stores the full `SessionReport` as a raw JSON file at `reports/{uid}/{runId}.json`; returns a `secure_url`
+- **Firestore** — stores lightweight metadata in `users/{uid}/reports/{runId}` (the Cloudinary URL + timestamps + `blockCount`); used as an index so the report can be fetched without re-downloading the full JSON
 
 ### Block Types
 

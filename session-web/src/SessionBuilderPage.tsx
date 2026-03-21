@@ -59,7 +59,9 @@ function prettyType(t: BlockType): string {
   return "Dynamic";
 }
 
-function typeColor(t: BlockType): "default" | "primary" | "success" | "warning" {
+function typeColor(
+  t: BlockType,
+): "default" | "primary" | "success" | "warning" {
   if (t === "work") return "primary";
   if (t === "break") return "success";
   return "warning";
@@ -102,10 +104,15 @@ export default function App() {
     { id: uid(), type: "work", minutes: 25, topic: "Deep work" },
   ]);
 
-  const [globalSettings, setGlobalSettings] = useState<BlockSettings>(DEFAULT_BLOCK_SETTINGS);
+  const [globalSettings, setGlobalSettings] = useState<BlockSettings>(
+    DEFAULT_BLOCK_SETTINGS,
+  );
   const [settingsBlockId, setSettingsBlockId] = useState<string | null>(null);
 
-  const [toast, setToast] = useState<{ kind: "success" | "error"; msg: string } | null>(null);
+  const [toast, setToast] = useState<{
+    kind: "success" | "error";
+    msg: string;
+  } | null>(null);
   const [extensionDialogOpen, setExtensionDialogOpen] = useState(false);
   const [extensionIdInput, setExtensionIdInput] = useState(getExtensionId());
 
@@ -157,7 +164,7 @@ export default function App() {
 
   function updateBlock(id: string, patch: Partial<SessionBlock>) {
     setBlocks((prev) =>
-      prev.map((b) => (b.id === id ? { ...b, ...patch } : b))
+      prev.map((b) => (b.id === id ? { ...b, ...patch } : b)),
     );
   }
 
@@ -235,7 +242,10 @@ export default function App() {
         if (isConnectionError) setExtensionDialogOpen(true);
         return;
       }
-      setToast({ kind: "success", msg: "Session started. Extension is running." });
+      setToast({
+        kind: "success",
+        msg: "Session started. Extension is running.",
+      });
     });
   }
 
@@ -247,7 +257,7 @@ export default function App() {
   }
 
   const settingsBlock = settingsBlockId
-    ? blocks.find((b) => b.id === settingsBlockId) ?? null
+    ? (blocks.find((b) => b.id === settingsBlockId) ?? null)
     : null;
 
   return (
@@ -255,11 +265,22 @@ export default function App() {
       <AppBar
         position="sticky"
         elevation={0}
-        sx={{ borderBottom: "1px solid", borderColor: "divider", bgcolor: "background.paper" }}
+        sx={{
+          borderBottom: "1px solid",
+          borderColor: "divider",
+          bgcolor: "background.paper",
+        }}
       >
         <Toolbar sx={{ display: "flex", justifyContent: "space-between" }}>
           <Stack spacing={0.25}>
-            <Typography variant="h6" sx={{ fontWeight: 800, letterSpacing: -0.5, color: "text.primary" }}>
+            <Typography
+              variant="h6"
+              sx={{
+                fontWeight: 800,
+                letterSpacing: -0.5,
+                color: "text.primary",
+              }}
+            >
               Session Builder
             </Typography>
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
@@ -275,7 +296,13 @@ export default function App() {
               rel="noopener noreferrer"
               variant="outlined"
               size="medium"
-              sx={{ textTransform: "none", fontWeight: 600, fontSize: "0.95rem", borderRadius: 2, px: 2 }}
+              sx={{
+                textTransform: "none",
+                fontWeight: 600,
+                fontSize: "0.95rem",
+                borderRadius: 2,
+                px: 2,
+              }}
             >
               How to use the system
             </Button>
@@ -303,7 +330,11 @@ export default function App() {
       </AppBar>
 
       <Container maxWidth="lg" sx={{ py: 3 }}>
-        <Stack direction={{ xs: "column", md: "row" }} spacing={2.5} alignItems="flex-start">
+        <Stack
+          direction={{ xs: "column", md: "row" }}
+          spacing={2.5}
+          alignItems="flex-start"
+        >
           {/* ── Blocks area ── */}
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Paper variant="outlined" sx={{ p: 2.5, borderRadius: 3 }}>
@@ -337,7 +368,7 @@ export default function App() {
                     Add Break
                   </Button>
                   <Tooltip
-                    title="A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
+                    title="The system will require you to define the work topic in order for the block start in practice."
                     slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
                   >
                     <Button
@@ -367,10 +398,23 @@ export default function App() {
                     b.localSettings && Object.keys(b.localSettings).length > 0;
 
                   return (
-                    <Card key={b.id} variant="outlined" sx={{ borderRadius: 3 }}>
+                    <Card
+                      key={b.id}
+                      variant="outlined"
+                      sx={{ borderRadius: 3 }}
+                    >
                       <CardContent sx={{ pb: 1.5 }}>
-                        <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                          <Chip label={`${idx + 1}`} size="small" variant="outlined" />
+                        <Stack
+                          direction="row"
+                          alignItems="center"
+                          spacing={1}
+                          sx={{ mb: 1 }}
+                        >
+                          <Chip
+                            label={`${idx + 1}`}
+                            size="small"
+                            variant="outlined"
+                          />
                           <Tooltip
                             title={
                               b.type === "dynamic"
@@ -378,7 +422,9 @@ export default function App() {
                                 : ""
                             }
                             disableHoverListener={b.type !== "dynamic"}
-                            slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
+                            slotProps={{
+                              tooltip: { sx: { fontSize: "0.85rem" } },
+                            }}
                           >
                             <Chip
                               label={prettyType(b.type)}
@@ -386,7 +432,10 @@ export default function App() {
                               color={typeColor(b.type)}
                             />
                           </Tooltip>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 600, ml: 0.2 }}>
+                          <Typography
+                            variant="subtitle2"
+                            sx={{ fontWeight: 600, ml: 0.2 }}
+                          >
                             {b.type === "work"
                               ? b.topic?.trim()
                                 ? b.topic
@@ -396,8 +445,12 @@ export default function App() {
                                 : " topic will be decided only when the block actually starts"}
                           </Typography>
 
-                          <Stack direction="row" spacing={0.5} sx={{ ml: "auto" }}>
-                            <Tooltip title="Block settings">
+                          <Stack
+                            direction="row"
+                            spacing={0.5}
+                            sx={{ ml: "auto" }}
+                          >
+                            <Tooltip title="Local Block settings">
                               <IconButton
                                 size="small"
                                 onClick={() => setSettingsBlockId(b.id)}
@@ -441,7 +494,11 @@ export default function App() {
                           </Stack>
                         </Stack>
 
-                        <Stack direction={{ xs: "column", sm: "row" }} spacing={1.25} sx={{ mb: 1.25 }}>
+                        <Stack
+                          direction={{ xs: "column", sm: "row" }}
+                          spacing={1.25}
+                          sx={{ mb: 1.25 }}
+                        >
                           {/* Type selector */}
                           <ToggleButtonGroup
                             exclusive
@@ -450,45 +507,77 @@ export default function App() {
                               if (!v) return;
                               const next = v as BlockType;
                               if (next === "work")
-                                updateBlock(b.id, { type: next, topic: b.topic ?? "" });
+                                updateBlock(b.id, {
+                                  type: next,
+                                  topic: b.topic ?? "",
+                                });
                               else
-                                updateBlock(b.id, { type: next, topic: undefined });
+                                updateBlock(b.id, {
+                                  type: next,
+                                  topic: undefined,
+                                });
                             }}
                             size="small"
                             sx={{ alignSelf: "flex-start" }}
                           >
-                            <ToggleButton value="work" sx={{ textTransform: "none", borderRadius: 2 }}>
+                            <ToggleButton
+                              value="work"
+                              sx={{ textTransform: "none", borderRadius: 2 }}
+                            >
                               Work
                             </ToggleButton>
-                            <ToggleButton value="break" sx={{ textTransform: "none", borderRadius: 2 }}>
+                            <ToggleButton
+                              value="break"
+                              sx={{ textTransform: "none", borderRadius: 2 }}
+                            >
                               Break
                             </ToggleButton>
                             <Tooltip
                               title="A Dynamic Block creates a structured pause in your schedule. When it begins, the system will halt and require you to define a specific 'Statement of Intent' before the timer starts."
-                              slotProps={{ tooltip: { sx: { fontSize: "0.85rem" } } }}
+                              slotProps={{
+                                tooltip: { sx: { fontSize: "0.85rem" } },
+                              }}
                             >
-                              <ToggleButton value="dynamic" sx={{ textTransform: "none", borderRadius: 2 }}>
+                              <ToggleButton
+                                value="dynamic"
+                                sx={{ textTransform: "none", borderRadius: 2 }}
+                              >
                                 Dynamic
                               </ToggleButton>
                             </Tooltip>
                           </ToggleButtonGroup>
 
                           {/* Duration */}
-                          <Stack direction="row" spacing={1} sx={{ width: { xs: "100%", sm: "auto" } }}>
+                          <Stack
+                            direction="row"
+                            spacing={1}
+                            sx={{ width: { xs: "100%", sm: "auto" } }}
+                          >
                             <TextField
                               label="Hours"
                               type="number"
-                              value={Math.floor((b.minutes || 0) / 60).toString()}
+                              value={Math.floor(
+                                (b.minutes || 0) / 60,
+                              ).toString()}
                               onChange={(e) => {
-                                const newHours = e.target.value === "" ? 0 : Number(e.target.value);
+                                const newHours =
+                                  e.target.value === ""
+                                    ? 0
+                                    : Number(e.target.value);
                                 const currentMins = (b.minutes || 0) % 60;
-                                updateBlock(b.id, { minutes: newHours * 60 + currentMins });
+                                updateBlock(b.id, {
+                                  minutes: newHours * 60 + currentMins,
+                                });
                               }}
                               inputProps={{ min: 0, max: 24, step: 1 }}
                               size="small"
                               sx={{ width: { xs: "50%", sm: 110 } }}
                               InputProps={{
-                                endAdornment: <InputAdornment position="end">h</InputAdornment>,
+                                endAdornment: (
+                                  <InputAdornment position="end">
+                                    h
+                                  </InputAdornment>
+                                ),
                               }}
                               helperText="0–24"
                             />
@@ -497,15 +586,26 @@ export default function App() {
                               type="number"
                               value={((b.minutes || 0) % 60).toString()}
                               onChange={(e) => {
-                                const newMins = e.target.value === "" ? 0 : Number(e.target.value);
-                                const currentHours = Math.floor((b.minutes || 0) / 60);
-                                updateBlock(b.id, { minutes: currentHours * 60 + newMins });
+                                const newMins =
+                                  e.target.value === ""
+                                    ? 0
+                                    : Number(e.target.value);
+                                const currentHours = Math.floor(
+                                  (b.minutes || 0) / 60,
+                                );
+                                updateBlock(b.id, {
+                                  minutes: currentHours * 60 + newMins,
+                                });
                               }}
                               inputProps={{ min: 0, max: 59, step: 1 }}
                               size="small"
                               sx={{ width: { xs: "50%", sm: 110 } }}
                               InputProps={{
-                                endAdornment: <InputAdornment position="end">m</InputAdornment>,
+                                endAdornment: (
+                                  <InputAdornment position="end">
+                                    m
+                                  </InputAdornment>
+                                ),
                               }}
                               helperText="0–59"
                             />
@@ -515,15 +615,26 @@ export default function App() {
                           <Stack justifyContent="center" sx={{ minWidth: 110 }}>
                             <Typography
                               variant="caption"
-                              sx={{ color: "text.disabled", fontWeight: 700, letterSpacing: "0.05em" }}
+                              sx={{
+                                color: "text.disabled",
+                                fontWeight: 700,
+                                letterSpacing: "0.05em",
+                              }}
                             >
                               EST. TIME
                             </Typography>
                             <Typography
                               variant="body2"
-                              sx={{ fontFamily: "monospace", color: "text.secondary", whiteSpace: "nowrap" }}
+                              sx={{
+                                fontFamily: "monospace",
+                                color: "text.secondary",
+                                whiteSpace: "nowrap",
+                              }}
                             >
-                              {formatClockRange(blockSchedule[idx].start, blockSchedule[idx].end)}
+                              {formatClockRange(
+                                blockSchedule[idx].start,
+                                blockSchedule[idx].end,
+                              )}
                             </Typography>
                           </Stack>
 
@@ -533,7 +644,9 @@ export default function App() {
                               label="Work topic"
                               placeholder="e.g., CS problem set"
                               value={b.topic ?? ""}
-                              onChange={(e) => updateBlock(b.id, { topic: e.target.value })}
+                              onChange={(e) =>
+                                updateBlock(b.id, { topic: e.target.value })
+                              }
                               size="small"
                               fullWidth
                               helperText="Required for Work blocks"
@@ -557,7 +670,9 @@ export default function App() {
                           label="Goals (optional)"
                           placeholder="e.g., Finish section, handle edge cases…"
                           value={b.goals ?? ""}
-                          onChange={(e) => updateBlock(b.id, { goals: e.target.value })}
+                          onChange={(e) =>
+                            updateBlock(b.id, { goals: e.target.value })
+                          }
                           multiline
                           minRows={2}
                           size="small"
@@ -574,7 +689,10 @@ export default function App() {
                           useFlexGap
                           sx={{ flex: 1 }}
                         >
-                          <Typography variant="caption" sx={{ color: "text.secondary" }}>
+                          <Typography
+                            variant="caption"
+                            sx={{ color: "text.secondary" }}
+                          >
                             Quick timing:
                           </Typography>
                           {PRESET_MINUTES.map((m) => (
@@ -607,22 +725,37 @@ export default function App() {
           {/* ── Settings sidebar ── */}
           <Paper
             variant="outlined"
-            sx={{ width: { xs: "100%", md: 280 }, flexShrink: 0, borderRadius: 3, p: 2 }}
+            sx={{
+              width: { xs: "100%", md: 280 },
+              flexShrink: 0,
+              borderRadius: 3,
+              p: 2,
+            }}
           >
-            <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1.5 }}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              sx={{ mb: 1.5 }}
+            >
               <TuneIcon sx={{ fontSize: 18, color: "text.secondary" }} />
               <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>
-                Session Settings
+                Global Session Settings
               </Typography>
             </Stack>
-            <Typography variant="caption" sx={{ color: "text.secondary", display: "block", mb: 1.5 }}>
+            <Typography
+              variant="caption"
+              sx={{ color: "text.secondary", display: "block", mb: 1.5 }}
+            >
               Defaults for all blocks. Override per-block with the tune icon.
             </Typography>
             <Divider sx={{ mb: 1.5 }} />
             <BlockSettingsPanel
               scope="global"
               settings={globalSettings}
-              onChange={(patch) => setGlobalSettings((prev) => ({ ...prev, ...patch }))}
+              onChange={(patch) =>
+                setGlobalSettings((prev) => ({ ...prev, ...patch }))
+              }
             />
           </Paper>
         </Stack>
@@ -637,15 +770,23 @@ export default function App() {
           fullWidth
         >
           <DialogTitle>
-            Block {blocks.findIndex((b) => b.id === settingsBlock.id) + 1} Settings
-            <Typography variant="body2" sx={{ color: "text.secondary", fontWeight: 400, mt: 0.25 }}>
-              Overrides apply to this block only. Other fields inherit global settings.
+            Block {blocks.findIndex((b) => b.id === settingsBlock.id) + 1}{" "}
+            Settings
+            <Typography
+              variant="body2"
+              sx={{ color: "text.secondary", fontWeight: 400, mt: 0.25 }}
+            >
+              Overrides apply to this block only. Other fields inherit global
+              settings.
             </Typography>
           </DialogTitle>
           <DialogContent>
             <BlockSettingsPanel
               scope="per-block"
-              settings={{ ...globalSettings, ...(settingsBlock.localSettings ?? {}) }}
+              settings={{
+                ...globalSettings,
+                ...(settingsBlock.localSettings ?? {}),
+              }}
               localOverrides={settingsBlock.localSettings ?? {}}
               blockType={settingsBlock.type}
               onOverrideChange={(field, value) => {
@@ -656,7 +797,8 @@ export default function App() {
                   (current as Record<string, unknown>)[field] = value;
                 }
                 updateBlock(settingsBlock.id, {
-                  localSettings: Object.keys(current).length > 0 ? current : undefined,
+                  localSettings:
+                    Object.keys(current).length > 0 ? current : undefined,
                 });
               }}
             />
@@ -674,7 +816,11 @@ export default function App() {
         anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
       >
         {toast ? (
-          <Alert severity={toast.kind} onClose={() => setToast(null)} sx={{ width: "100%" }}>
+          <Alert
+            severity={toast.kind}
+            onClose={() => setToast(null)}
+            sx={{ width: "100%" }}
+          >
             {toast.msg}
           </Alert>
         ) : undefined}
@@ -689,8 +835,8 @@ export default function App() {
         <DialogTitle>Extension ID</DialogTitle>
         <DialogContent>
           <Typography variant="body2" sx={{ mb: 2, color: "text.secondary" }}>
-            Copy the Extension ID from chrome://extensions (click the extension, copy the ID under
-            the name).
+            Copy the Extension ID from chrome://extensions (click the extension,
+            copy the ID under the name).
           </Typography>
           <TextField
             fullWidth
