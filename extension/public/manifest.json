@@ -21,6 +21,8 @@
   ],
   "externally_connectable": {
     "matches": ["http://localhost:5173/*"]
-  }
-
+  },
+  "web_accessible_resources": [
+    { "resources": ["audio/*"], "matches": ["<all_urls>"] }
+  ]
 }

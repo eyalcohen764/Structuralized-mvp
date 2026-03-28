@@ -321,6 +321,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
           maxSnoozeMinutes,
           snoozeCount,
           endedBlockType: endedBlock.type,
+          alertVolume: resolvedSettings.alertVolume ?? 80,
         },
       },
       "Session complete",
@@ -368,6 +369,7 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
         maxSnoozeMinutes,
         snoozeCount,
         endedBlockType: endedBlock.type,
+        alertVolume: resolvedSettings.alertVolume ?? 80,
       },
     },
     "Block finished",
@@ -438,6 +440,7 @@ chrome.runtime.onMessageExternal.addListener((msg: unknown, _sender, sendRespons
               maxSnoozeMinutes: 0,
               snoozeCount: 0,
               endedBlockType: "dynamic",
+              alertVolume: startPromptState.resolvedSettings.alertVolume ?? 80,
             },
           },
           "Session starting",
@@ -711,6 +714,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 
       await setState(running);
       chrome.alarms.create(ALARM_NAME, { when: endsAt });
+      await hideFeedbackModalAllTabs(); // closes modal + stops audio on every tab
 
       const block = s.plan.blocks[endedBlockIndex];
       await notifyActiveTab(
@@ -821,6 +825,16 @@ async function showFeedbackOnActiveTab(tabId: number) {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab?.url || isRestrictedUrl(tab.url)) return;
 
+  const endedBlockType = s.endedBlock.type;
+  const snoozeMax =
+    endedBlockType === "break"
+      ? (s.resolvedSettings.returnMaxCount ?? 0)
+      : (s.resolvedSettings.endMaxCount ?? 0);
+  const maxSnoozeMinutes =
+    endedBlockType === "break"
+      ? (s.resolvedSettings.returnSnoozeMaxMinutes ?? 10)
+      : (s.resolvedSettings.endSnoozeMaxMinutes ?? 15);
+
   const msg: Msg = {
     type: "SHOW_FEEDBACK_MODAL",
     payload: {
@@ -829,6 +843,12 @@ async function showFeedbackOnActiveTab(tabId: number) {
       nextNeedsTopic: s.nextBlockNeedsTopic,
       isFinal: s.nextIndex >= s.plan.blocks.length,
       runId: s.runId,
+      inputRequired: s.resolvedSettings.inputRequired ?? false,
+      snoozeMax,
+      maxSnoozeMinutes,
+      snoozeCount: s.snoozeCount,
+      endedBlockType,
+      alertVolume: s.resolvedSettings.alertVolume ?? 80,
     },
   };
 

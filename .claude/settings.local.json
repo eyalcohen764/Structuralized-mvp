@@ -4,7 +4,9 @@
       "Bash(npx tsc:*)",
       "Bash(npm run:*)",
       "Bash(cd:*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(cp \"/c/Users/avihu/OneDrive/Documents/eyal_workspace/mvp/structuralized-mvp/.claude/remembering-these-places_E_minor.wav\" \"/c/Users/avihu/OneDrive/Documents/eyal_workspace/mvp/structuralized-mvp/extension/public/audio/remembering-these-places_E_minor.wav\")",
+      "Bash(cp \"/c/Users/avihu/OneDrive/Documents/eyal_workspace/mvp/structuralized-mvp/.claude/remembering-these-places_E_minor.wav\" \"/c/Users/avihu/OneDrive/Documents/eyal_workspace/mvp/structuralized-mvp/session-web/public/audio/remembering-these-places_E_minor.wav\")"
     ]
   }
 }

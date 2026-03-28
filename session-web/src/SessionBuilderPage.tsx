@@ -450,7 +450,7 @@ export default function App() {
                             spacing={0.5}
                             sx={{ ml: "auto" }}
                           >
-                            <Tooltip title="Local Block settings">
+                            <Tooltip title="Local Block settings (override global settings) ">
                               <IconButton
                                 size="small"
                                 onClick={() => setSettingsBlockId(b.id)}

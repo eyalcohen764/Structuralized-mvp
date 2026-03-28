@@ -11,6 +11,57 @@ const LIGHT = {
   border: "rgba(0,0,0,0.2)",
 };
 
+// ─── Audio state ──────────────────────────────────────────────────────────────
+
+let audioState: { ctx: AudioContext; gain: GainNode } | null = null;
+// Monotonically-increasing counter. Each stopAudio() call bumps it so that any
+// in-flight startAudio() that started before the stop knows it is stale and
+// must not call source.start() — prevents two AudioContexts from playing at once.
+let audioGeneration = 0;
+
+function stopAudio() {
+  audioGeneration++;
+  if (audioState) {
+    try { audioState.ctx.close(); } catch { /* ignore */ }
+    audioState = null;
+  }
+}
+
+async function startAudio(volume: number): Promise<void> {
+  // Capture the generation at call time. If stopAudio() is called while we
+  // are awaiting fetch/decode, our generation will be stale and we bail out.
+  const myGen = audioGeneration;
+  try {
+    const ctx = new AudioContext();
+    await ctx.resume();
+    if (myGen !== audioGeneration) { try { ctx.close(); } catch {} return; }
+
+    const url = chrome.runtime.getURL("audio/remembering-these-places_E_minor.wav");
+    const arrayBuf = await fetch(url).then((r) => r.arrayBuffer());
+    if (myGen !== audioGeneration) { try { ctx.close(); } catch {} return; }
+
+    const audioBuffer = await ctx.decodeAudioData(arrayBuf);
+    if (myGen !== audioGeneration) { try { ctx.close(); } catch {} return; }
+
+    const gain = ctx.createGain();
+    const pct = volume / 100;
+    gain.gain.value = pct * pct; // quadratic curve for perceptual linearity
+
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.loop = true;
+    source.connect(gain);
+    gain.connect(ctx.destination);
+    source.start(0);
+
+    audioState = { ctx, gain };
+  } catch {
+    // Autoplay blocked or context closed — fail silently
+  }
+}
+
+// ─── Overlay helpers ──────────────────────────────────────────────────────────
+
 function ensureOverlayRoot() {
   let root = document.getElementById(OVERLAY_ID) as HTMLDivElement | null;
   if (root) return root;
@@ -87,6 +138,7 @@ function ensureModalRoot() {
 }
 
 function closeModal() {
+  stopAudio();
   const root = document.getElementById(MODAL_ID);
   if (root) root.remove();
 }
@@ -102,8 +154,10 @@ function renderFeedbackModal(
   maxSnoozeMinutes: number,
   snoozeCount: number,
   endedBlockType: BlockType,
+  alertVolume: number,
 ) {
   clearOverlay();
+  stopAudio(); // clean up any prior audio before re-rendering
 
   const isStartPrompt = endedTitle === "Session starting";
   const snoozesLeft = snoozeMax - snoozeCount;
@@ -180,6 +234,44 @@ function renderFeedbackModal(
 
   panel.appendChild(error);
 
+  // Volume slider (only when audio plays, i.e. not start prompt)
+  let volSlider: HTMLInputElement | null = null;
+  if (!isStartPrompt) {
+    const volRow = document.createElement("div");
+    volRow.style.cssText = `display:flex;align-items:center;gap:8px;margin-top:14px;padding:8px 10px;border-radius:10px;border:1px solid ${LIGHT.border};background:rgba(0,0,0,0.03);`;
+
+    const volIcon = document.createElement("span");
+    volIcon.textContent = "🔊";
+    volIcon.style.cssText = "font-size:14px;flex-shrink:0;";
+
+    volSlider = document.createElement("input");
+    volSlider.type = "range";
+    volSlider.min = "0";
+    volSlider.max = "100";
+    volSlider.step = "5";
+    volSlider.value = String(alertVolume);
+    volSlider.style.cssText = "flex:1;cursor:pointer;accent-color:#111;";
+
+    const volLabel = document.createElement("span");
+    volLabel.textContent = `${alertVolume}%`;
+    volLabel.style.cssText = `font-size:12px;color:${LIGHT.textMuted};min-width:32px;text-align:right;flex-shrink:0;`;
+
+    volSlider.oninput = () => {
+      const pct = Number(volSlider!.value) / 100;
+      // Quadratic curve: matches human perception of loudness (linear feels like "minor effect")
+      const gain = pct * pct;
+      if (audioState) {
+        audioState.gain.gain.setValueAtTime(gain, audioState.ctx.currentTime);
+      }
+      volLabel.textContent = `${volSlider!.value}%`;
+    };
+
+    volRow.appendChild(volIcon);
+    volRow.appendChild(volSlider);
+    volRow.appendChild(volLabel);
+    panel.appendChild(volRow);
+  }
+
   const row = document.createElement("div");
   row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;margin-top:14px;align-items:center;flex-wrap:wrap;";
 
@@ -222,21 +314,22 @@ function renderFeedbackModal(
       }
     }
 
-    await chrome.runtime.sendMessage({
-      type: "SUBMIT_BLOCK_FEEDBACK",
-      payload: {
-        reflection: isStartPrompt ? "" : r,
-        nextTopic: t || undefined,
-      },
-    });
-
-    if (isFinal) {
+    stopAudio(); // Stop immediately — don't wait for async ops
+    try {
       await chrome.runtime.sendMessage({
-        type: "OPEN_REPORT",
-        payload: { runId },
+        type: "SUBMIT_BLOCK_FEEDBACK",
+        payload: {
+          reflection: isStartPrompt ? "" : r,
+          nextTopic: t || undefined,
+        },
       });
-    }
-
+      if (isFinal) {
+        await chrome.runtime.sendMessage({
+          type: "OPEN_REPORT",
+          payload: { runId },
+        });
+      }
+    } catch { /* service worker may have restarted */ }
     closeModal();
   };
 
@@ -294,11 +387,13 @@ function renderFeedbackModal(
       }
       snoozeError.style.display = "none";
 
-      await chrome.runtime.sendMessage({
-        type: "SNOOZE_BLOCK",
-        payload: { minutes: mins },
-      });
-
+      stopAudio(); // Stop immediately — don't wait for async ops
+      try {
+        await chrome.runtime.sendMessage({
+          type: "SNOOZE_BLOCK",
+          payload: { minutes: mins },
+        });
+      } catch { /* service worker may have restarted */ }
       closeModal();
     };
 
@@ -327,6 +422,17 @@ function renderFeedbackModal(
 
   if (isStartPrompt && topicInput) topicInput.focus();
   else if (!isStartPrompt) reflection.focus();
+
+  // Start audio loop (not for start prompts)
+  if (!isStartPrompt && alertVolume > 0) {
+    startAudio(alertVolume).then(() => {
+      // Sync gain to current slider value in case user moved it while audio was loading
+      if (audioState && volSlider) {
+        const pct = Number(volSlider.value) / 100;
+        audioState.gain.gain.setValueAtTime(pct * pct, audioState.ctx.currentTime);
+      }
+    });
+  }
 }
 
 // Auto-detect: page can request extension ID via postMessage (for session-web)
@@ -357,6 +463,7 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
       msg.payload.maxSnoozeMinutes,
       msg.payload.snoozeCount,
       msg.payload.endedBlockType,
+      msg.payload.alertVolume,
     );
     return;
   }

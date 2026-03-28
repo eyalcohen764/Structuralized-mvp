@@ -7,10 +7,34 @@ import {
   IconButton,
   Divider,
   Box,
+  Slider,
 } from "@mui/material";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import type { BlockSettings, BlockType } from "../../../extension/src/shared";
+
+// ─── Audio preview ────────────────────────────────────────────────────────────
+
+let _previewAudio: HTMLAudioElement | null = null;
+let _previewTimer: ReturnType<typeof setTimeout> | null = null;
+let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+function playPreview(volume: number) {
+  if (_debounceTimer) clearTimeout(_debounceTimer);
+  _debounceTimer = setTimeout(() => {
+    if (_previewTimer) { clearTimeout(_previewTimer); _previewTimer = null; }
+    if (_previewAudio) { _previewAudio.pause(); _previewAudio.currentTime = 0; }
+    const audio = new Audio("/audio/remembering-these-places_E_minor.wav");
+    const pct = Math.max(0, Math.min(1, volume / 100));
+    audio.volume = pct * pct; // quadratic curve matches modal slider perception
+    audio.play().catch(() => { /* autoplay may be blocked */ });
+    _previewAudio = audio;
+    _previewTimer = setTimeout(() => {
+      audio.pause();
+      audio.currentTime = 0;
+    }, 2500);
+  }, 300);
+}
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
@@ -334,6 +358,55 @@ export default function BlockSettingsPanel({
           </Box>
         </>
       )}
+
+      {/* Sound */}
+      <Divider />
+      <Box>
+        <Typography
+          variant="caption"
+          sx={{
+            fontWeight: 800,
+            color: "text.disabled",
+            letterSpacing: "0.06em",
+          }}
+        >
+          SOUND
+        </Typography>
+        <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+          <SettingRow
+            label="Alert volume"
+            helpText="Volume of the alert sound that plays at block transitions (0 = silent). Drag to hear a preview."
+            overridden={isOverridden("alertVolume")}
+            onReset={() => handleReset("alertVolume")}
+          >
+            <Stack direction="row" alignItems="center" spacing={1} sx={{ width: 130 }}>
+              <Slider
+                size="small"
+                value={settings.alertVolume ?? 80}
+                min={0}
+                max={100}
+                step={5}
+                disabled={readOnly}
+                onChange={(_, v) => {
+                  handleChange("alertVolume", v as number);
+                  playPreview(v as number);
+                }}
+                sx={
+                  isOverridden("alertVolume")
+                    ? { color: "warning.main", flex: 1 }
+                    : { flex: 1 }
+                }
+              />
+              <Typography
+                variant="caption"
+                sx={{ minWidth: 32, textAlign: "right", color: "text.secondary" }}
+              >
+                {settings.alertVolume ?? 80}%
+              </Typography>
+            </Stack>
+          </SettingRow>
+        </Stack>
+      </Box>
     </Stack>
   );
 }
