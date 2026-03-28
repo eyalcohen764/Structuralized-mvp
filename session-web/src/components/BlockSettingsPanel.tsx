@@ -231,7 +231,7 @@ export default function BlockSettingsPanel({
                 letterSpacing: "0.06em",
               }}
             >
-              WORK / DYNAMIC
+              WORK / DYNAMIC SNOOZES
             </Typography>
             <Stack spacing={0.5} sx={{ mt: 0.5 }}>
               <SettingRow
@@ -282,34 +282,6 @@ export default function BlockSettingsPanel({
                   }}
                 />
               </SettingRow>
-              <SettingRow
-                label="Announce every (min)"
-                helpText="Every N minutes during a work or dynamic block, the extension reads aloud the current time and how long until the session ends. Set to 0 to disable."
-                overridden={isOverridden("workAnnounceEveryMinutes")}
-                onReset={() => handleReset("workAnnounceEveryMinutes")}
-              >
-                <TextField
-                  type="number"
-                  value={settings.workAnnounceEveryMinutes ?? 0}
-                  disabled={readOnly}
-                  onChange={(e) =>
-                    handleChange(
-                      "workAnnounceEveryMinutes",
-                      Number(e.target.value),
-                    )
-                  }
-                  inputProps={{ min: 0, max: 120, step: 1 }}
-                  size="small"
-                  sx={{
-                    width: 70,
-                    "& .MuiOutlinedInput-root": isOverridden(
-                      "workAnnounceEveryMinutes",
-                    )
-                      ? { "& fieldset": { borderColor: "warning.main" } }
-                      : {},
-                  }}
-                />
-              </SettingRow>
             </Stack>
           </Box>
         </>
@@ -328,7 +300,7 @@ export default function BlockSettingsPanel({
                 letterSpacing: "0.06em",
               }}
             >
-              BREAK
+              BREAK SNOOZES
             </Typography>
             <Stack spacing={0.5} sx={{ mt: 0.5 }}>
               <SettingRow
@@ -376,34 +348,6 @@ export default function BlockSettingsPanel({
                     width: 70,
                     "& .MuiOutlinedInput-root": isOverridden(
                       "returnSnoozeMaxMinutes",
-                    )
-                      ? { "& fieldset": { borderColor: "warning.main" } }
-                      : {},
-                  }}
-                />
-              </SettingRow>
-              <SettingRow
-                label="Announce every (min)"
-                helpText="Every N minutes during a break block, the extension reads aloud the current time and how long until the session ends. Set to 0 to disable."
-                overridden={isOverridden("breakAnnounceEveryMinutes")}
-                onReset={() => handleReset("breakAnnounceEveryMinutes")}
-              >
-                <TextField
-                  type="number"
-                  value={settings.breakAnnounceEveryMinutes ?? 0}
-                  disabled={readOnly}
-                  onChange={(e) =>
-                    handleChange(
-                      "breakAnnounceEveryMinutes",
-                      Number(e.target.value),
-                    )
-                  }
-                  inputProps={{ min: 0, max: 120, step: 1 }}
-                  size="small"
-                  sx={{
-                    width: 70,
-                    "& .MuiOutlinedInput-root": isOverridden(
-                      "breakAnnounceEveryMinutes",
                     )
                       ? { "& fieldset": { borderColor: "warning.main" } }
                       : {},

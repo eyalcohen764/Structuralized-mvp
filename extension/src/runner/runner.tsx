@@ -4,7 +4,6 @@ import {
   STORAGE_KEY,
   APP_ORIGIN_KEY,
   DEFAULT_APP_ORIGIN,
-  formatRemainingHms,
   type SessionRuntimeState,
   type SessionPlan,
 } from "../shared";
@@ -87,10 +86,6 @@ function App() {
   const [reflection, setReflection] = useState("");
   const [topic, setTopic] = useState("");
   const [feedbackError, setFeedbackError] = useState("");
-  const [showSnoozeForm, setShowSnoozeForm] = useState(false);
-  const [snoozeMinutes, setSnoozeMinutes] = useState("5");
-  const [snoozeError, setSnoozeError] = useState("");
-  const [nowTick, setNowTick] = useState(Date.now());
 
   useEffect(() => {
     (async () => {
@@ -137,16 +132,6 @@ function App() {
     };
   }, [state]);
 
-  useEffect(() => {
-    if (!runningInfo) return;
-    const id = setInterval(() => setNowTick(Date.now()), 1000);
-    return () => clearInterval(id);
-  }, [!!runningInfo]);
-
-  const blockRemaining = runningInfo
-    ? formatRemainingHms(runningInfo.endsAt - nowTick)
-    : "";
-
   const pausedInfo = useMemo(() => {
     if (state.status !== "paused") return null;
 
@@ -163,50 +148,22 @@ function App() {
   const awaitingInfo = useMemo(() => {
     if (state.status !== "awaiting_feedback") return null;
 
-    const s = state as Extract<
-      SessionRuntimeState,
-      { status: "awaiting_feedback" }
-    >;
-    const endedTitle = s.endedBlockTitle;
-    const nextTitle = s.nextBlockTitle;
-    const needsTopic = s.nextBlockNeedsTopic;
-    const runId = s.runId;
+    const endedTitle = (state as any).endedBlockTitle as string | undefined;
+    const nextTitle = (state as any).nextBlockTitle as string | undefined;
+    const needsTopic = Boolean((state as any).nextBlockNeedsTopic);
+    const runId = (state as any).runId as string | undefined;
     const isStartPrompt = endedTitle === "Session starting";
-    const isFinal =
-      nextTitle === "Session complete ✅" || nextTitle === "Session stopped";
+    const isFinal = nextTitle === "Session complete ✅" || nextTitle === "Session stopped";
     const shouldAskTopic = isStartPrompt ? true : !isFinal && needsTopic;
 
-    const endedBlockType = s.endedBlock.type;
-    const resolvedSettings = s.resolvedSettings;
-    const snoozeCount = s.snoozeCount;
-    const snoozeMax =
-      endedBlockType === "break"
-        ? (resolvedSettings.returnMaxCount ?? 0)
-        : (resolvedSettings.endMaxCount ?? 0);
-    const maxSnoozeMinutes =
-      endedBlockType === "break"
-        ? (resolvedSettings.returnSnoozeMaxMinutes ?? 10)
-        : (resolvedSettings.endSnoozeMaxMinutes ?? 15);
-    const snoozesLeft = snoozeMax - snoozeCount;
-    const canSnooze = snoozeMax > 0 && !isStartPrompt && snoozesLeft > 0;
-    const inputRequired =
-      endedBlockType === "break"
-        ? (resolvedSettings.breakInputRequired ?? false)
-        : (resolvedSettings.inputRequired ?? false);
-
     return {
-      endedTitle,
-      nextTitle,
+      endedTitle: endedTitle ?? "",
+      nextTitle: nextTitle ?? "",
       needsTopic,
-      runId,
+      runId: runId ?? "",
       isStartPrompt,
       isFinal,
       shouldAskTopic,
-      canSnooze,
-      snoozesLeft,
-      maxSnoozeMinutes,
-      endedBlockType,
-      inputRequired,
     };
   }, [state]);
 
@@ -216,11 +173,6 @@ function App() {
       setReflection("");
       setTopic("");
       setFeedbackError("");
-      setShowSnoozeForm(false);
-      setSnoozeMinutes(
-        String(Math.min(5, Math.max(1, awaitingInfo.maxSnoozeMinutes))),
-      );
-      setSnoozeError("");
     }
   }, [awaitingInfo?.endedTitle, awaitingInfo?.runId]);
 
@@ -302,7 +254,7 @@ function App() {
         return;
       }
     } else {
-      if (awaitingInfo.inputRequired && !r) {
+      if (!r) {
         setFeedbackError("Please enter a reflection to continue.");
         return;
       }
@@ -331,26 +283,6 @@ function App() {
         payload: { runId: awaitingInfo.runId },
       });
     }
-  };
-
-  const handleSnoozeConfirm = async () => {
-    if (!awaitingInfo?.canSnooze) return;
-    const maxM = awaitingInfo.maxSnoozeMinutes;
-    const mins = Number(snoozeMinutes);
-    if (!Number.isFinite(mins) || mins < 1 || mins > maxM) {
-      setSnoozeError(`Enter a value between 1 and ${maxM}.`);
-      return;
-    }
-    setSnoozeError("");
-    const res = await chrome.runtime.sendMessage({
-      type: "SNOOZE_BLOCK",
-      payload: { minutes: mins },
-    });
-    if (res?.ok === false) {
-      setSnoozeError(res.error ?? "Snooze failed");
-      return;
-    }
-    setShowSnoozeForm(false);
   };
 
   return (
@@ -458,19 +390,7 @@ function App() {
             <>
               <div style={{ fontWeight: 800 }}>{runningInfo.title}</div>
 
-              <div
-                style={{
-                  marginTop: 8,
-                  fontSize: 20,
-                  fontWeight: 900,
-                  fontVariantNumeric: "tabular-nums",
-                  letterSpacing: "-0.5px",
-                }}
-              >
-                {blockRemaining}
-              </div>
-
-              <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+              <div style={{ marginTop: 8, fontSize: 13, opacity: 0.8 }}>
                 <div>
                   <b>Started:</b> {formatDateTime(runningInfo.startedAt)}
                 </div>
@@ -597,11 +517,7 @@ function App() {
 
           {!awaitingInfo.isStartPrompt && (
             <>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>
-                {awaitingInfo.inputRequired
-                  ? "Quick reflection (required)"
-                  : "Quick reflection"}
-              </div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Quick reflection</div>
               <textarea
                 value={reflection}
                 onChange={(e) => setReflection(e.target.value)}
@@ -657,119 +573,26 @@ function App() {
             </div>
           )}
 
-          {awaitingInfo.canSnooze && showSnoozeForm && (
-            <div
-              style={{
-                marginBottom: 12,
-                padding: 12,
-                borderRadius: 12,
-                border: "1px solid rgba(0,0,0,0.15)",
-                background: "rgba(0,0,0,0.03)",
-              }}
-            >
-              <div style={{ fontWeight: 700, marginBottom: 8, fontSize: 13 }}>
-                Snooze for how many minutes? (1–{awaitingInfo.maxSnoozeMinutes})
-              </div>
-              <input
-                type="number"
-                min={1}
-                max={awaitingInfo.maxSnoozeMinutes}
-                value={snoozeMinutes}
-                onChange={(e) => setSnoozeMinutes(e.target.value)}
-                style={{
-                  width: "100%",
-                  boxSizing: "border-box",
-                  borderRadius: 10,
-                  border: "1px solid rgba(0,0,0,0.2)",
-                  padding: 8,
-                  fontSize: 13,
-                  marginBottom: 8,
-                }}
-              />
-              {snoozeError && (
-                <div style={{ color: "#b00020", fontSize: 12, marginBottom: 8 }}>
-                  {snoozeError}
-                </div>
-              )}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={handleSnoozeConfirm}
-                  style={{
-                    ...btnBase,
-                    flex: 1,
-                    background: "#111",
-                    color: "white",
-                    border: "none",
-                  }}
-                >
-                  Confirm snooze
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setShowSnoozeForm(false);
-                    setSnoozeError("");
-                  }}
-                  style={{ ...btnBase, flex: 1, background: "#f5f5f5", color: "#333" }}
-                >
-                  Cancel
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div
+          <button
+            onClick={handleSubmitFeedback}
             style={{
-              display: "flex",
-              gap: 10,
-              flexWrap: "wrap",
-              justifyContent: "flex-end",
-              alignItems: "center",
+              width: "100%",
+              padding: "10px 12px",
+              borderRadius: 12,
+              border: "1px solid rgba(0,0,0,0.2)",
+              background: "#111",
+              color: "white",
+              fontWeight: 800,
+              cursor: "pointer",
+              fontSize: 13,
             }}
           >
-            {awaitingInfo.canSnooze && !showSnoozeForm && (
-              <button
-                type="button"
-                onClick={() => setShowSnoozeForm(true)}
-                style={{
-                  padding: "10px 12px",
-                  borderRadius: 12,
-                  border: "1px solid rgba(0,0,0,0.2)",
-                  background: "white",
-                  color: "#111",
-                  fontWeight: 700,
-                  cursor: "pointer",
-                  fontSize: 13,
-                }}
-              >
-                {awaitingInfo.endedBlockType === "break"
-                  ? `Extend break (${awaitingInfo.snoozesLeft} left)`
-                  : `Snooze (${awaitingInfo.snoozesLeft} left)`}
-              </button>
-            )}
-            <button
-              onClick={handleSubmitFeedback}
-              style={{
-                flex: 1,
-                minWidth: 120,
-                padding: "10px 12px",
-                borderRadius: 12,
-                border: "1px solid rgba(0,0,0,0.2)",
-                background: "#111",
-                color: "white",
-                fontWeight: 800,
-                cursor: "pointer",
-                fontSize: 13,
-              }}
-            >
-              {awaitingInfo.isStartPrompt
-                ? "Start"
-                : awaitingInfo.isFinal
-                  ? "Complete"
-                  : "Continue"}
-            </button>
-          </div>
+            {awaitingInfo.isStartPrompt
+              ? "Start"
+              : awaitingInfo.isFinal
+                ? "Complete"
+                : "Continue"}
+          </button>
         </div>
       )}
 

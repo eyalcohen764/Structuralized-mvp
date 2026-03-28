@@ -1,12 +1,10 @@
 import {
   ALARM_NAME,
-  REMIND_ALARM_NAME,
   APP_ORIGIN_KEY,
   STORAGE_KEY,
   REPORT_PREFIX,
   LATEST_REPORT_KEY,
   resolveSettings,
-  computeSessionEndsAt,
   type BlockSettings,
   type Msg,
   type PauseRecord,
@@ -74,49 +72,6 @@ function isRestrictedUrl(url: string): boolean {
     url.startsWith("chrome-extension://") ||
     url.startsWith("https://chrome.google.com/webstore")
   );
-}
-
-type AwaitingFeedbackState = Extract<
-  SessionRuntimeState,
-  { status: "awaiting_feedback" }
->;
-type FeedbackModalPayload = Extract<
-  Msg,
-  { type: "SHOW_FEEDBACK_MODAL" }
->["payload"];
-
-/** Same fields as alarm-driven modal — keeps Snooze visible after tab/window switches */
-function feedbackModalPayloadFromAwaitingState(
-  s: AwaitingFeedbackState,
-  options?: { nextTitleOverride?: string },
-): FeedbackModalPayload {
-  const { endedBlock, resolvedSettings, snoozeCount, plan, nextIndex } = s;
-  const endedBlockType = endedBlock.type;
-
-  const snoozeMax =
-    endedBlockType === "break"
-      ? (resolvedSettings.returnMaxCount ?? 0)
-      : (resolvedSettings.endMaxCount ?? 0);
-  const maxSnoozeMinutes =
-    endedBlockType === "break"
-      ? (resolvedSettings.returnSnoozeMaxMinutes ?? 10)
-      : (resolvedSettings.endSnoozeMaxMinutes ?? 15);
-
-  return {
-    endedTitle: s.endedBlockTitle,
-    nextTitle: options?.nextTitleOverride ?? s.nextBlockTitle,
-    nextNeedsTopic: s.nextBlockNeedsTopic,
-    isFinal: nextIndex >= plan.blocks.length,
-    runId: s.runId,
-    inputRequired:
-      endedBlockType === "break"
-        ? (resolvedSettings.breakInputRequired ?? false)
-        : (resolvedSettings.inputRequired ?? false),
-    snoozeMax,
-    maxSnoozeMinutes,
-    snoozeCount,
-    endedBlockType,
-  };
 }
 
 async function notifyActiveTab(msg: Msg, fallbackTitle: string, fallbackBody: string) {
@@ -223,18 +178,6 @@ function finalizeSnoozes(
   return all.length > 0 ? all : undefined;
 }
 
-function scheduleRemindAlarm(plan: SessionPlan, currentIndex: number): void {
-  const resolved = resolveSettings(plan, currentIndex);
-  const blockType = plan.blocks[currentIndex].type;
-  const announceEvery =
-    blockType === "break"
-      ? (resolved.breakAnnounceEveryMinutes ?? 0)
-      : (resolved.workAnnounceEveryMinutes ?? 0);
-  if (announceEvery > 0) {
-    chrome.alarms.create(REMIND_ALARM_NAME, { periodInMinutes: announceEvery });
-  }
-}
-
 async function startBlock(
   runId: string,
   origin: string | undefined,
@@ -266,7 +209,6 @@ async function startBlock(
 
   await setState(running);
   chrome.alarms.create(ALARM_NAME, { when: endsAt });
-  scheduleRemindAlarm(plan, currentIndex);
 
   await notifyActiveTab(
     {
@@ -287,21 +229,6 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name.startsWith(NOTIF_CLEAR_ALARM_PREFIX)) {
     const notifId = alarm.name.slice(NOTIF_CLEAR_ALARM_PREFIX.length);
     await chrome.notifications.clear(notifId);
-    return;
-  }
-
-  if (alarm.name === REMIND_ALARM_NAME) {
-    const s = await getState();
-    if (s.status !== "running") {
-      await chrome.alarms.clear(REMIND_ALARM_NAME);
-      return;
-    }
-    const sessionEndsAt = computeSessionEndsAt(
-      s.currentBlockEndsAt,
-      s.currentIndex,
-      s.plan,
-    );
-    await notifyActiveTab({ type: "SPEAK_TIME_UPDATE", payload: { sessionEndsAt } });
     return;
   }
 
@@ -348,6 +275,16 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
 
   const nextIndex = currentIndex + 1;
   const isLast = nextIndex >= plan.blocks.length;
+
+  // Compute snooze limits for the ended block type
+  const snoozeMax =
+    endedBlock.type === "break"
+      ? (resolvedSettings.returnMaxCount ?? 0)
+      : (resolvedSettings.endMaxCount ?? 0);
+  const maxSnoozeMinutes =
+    endedBlock.type === "break"
+      ? (resolvedSettings.returnSnoozeMaxMinutes ?? 10)
+      : (resolvedSettings.endSnoozeMaxMinutes ?? 15);
 
   if (isLast) {
     const awaiting: SessionRuntimeState = {
@@ -579,7 +516,6 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       }
 
       await chrome.alarms.clear(ALARM_NAME);
-      await chrome.alarms.clear(REMIND_ALARM_NAME);
 
       const pausedAt = now();
       const remainingMs = Math.max(0, s.currentBlockEndsAt - pausedAt);
@@ -636,7 +572,6 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 
       await setState(running);
       chrome.alarms.create(ALARM_NAME, { when: newEndsAt });
-      scheduleRemindAlarm(s.plan, s.currentIndex);
 
       const block = s.plan.blocks[s.currentIndex];
       await notifyActiveTab(
@@ -663,7 +598,6 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       }
 
       await chrome.alarms.clear(ALARM_NAME);
-      await chrome.alarms.clear(REMIND_ALARM_NAME);
 
       const stoppedAt = now();
       let currentPauses: PauseRecord[];

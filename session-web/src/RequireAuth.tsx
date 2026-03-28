@@ -4,11 +4,7 @@ import { Box, CircularProgress } from "@mui/material";
 import { useAuth } from "./AuthContext";
 
 export default function RequireAuth({ children }: { children: ReactNode }) {
-  const { user, loading, firebaseEnabled } = useAuth();
-
-  if (!firebaseEnabled) {
-    return <>{children}</>;
-  }
+  const { user, loading } = useAuth();
 
   if (loading) {
     return (

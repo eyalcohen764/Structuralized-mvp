@@ -9,7 +9,6 @@ import {
 } from "@mui/material";
 import { FirebaseError } from "firebase/app";
 import { useAuth } from "./AuthContext";
-import { isFirebaseConfigured } from "./firebase";
 
 const FIREBASE_ERROR_MESSAGES: Record<string, string> = {
   "auth/popup-blocked": "Popup was blocked by your browser. Please allow popups for this site.",
@@ -23,10 +22,6 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  if (!isFirebaseConfigured) {
-    return <Navigate to="/" replace />;
-  }
 
   if (user) {
     return <Navigate to="/" replace />;

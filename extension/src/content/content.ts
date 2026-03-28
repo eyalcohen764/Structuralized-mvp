@@ -1,29 +1,7 @@
-import { formatRemainingHms } from "../shared";
 import type { BlockType, Msg } from "../shared";
 
 const OVERLAY_ID = "session-ext-overlay-root";
 const MODAL_ID = "session-ext-modal-root";
-
-let feedbackAudio: HTMLAudioElement | null = null;
-
-function startFeedbackAudio() {
-  stopFeedbackAudio();
-  const url = chrome.runtime.getURL("remembering-these-places_E_minor.wav");
-  feedbackAudio = new Audio(url);
-  feedbackAudio.loop = true;
-  feedbackAudio.volume = 0.7;
-  feedbackAudio.play().catch(() => {
-    // Autoplay may be blocked; silently ignore — user can interact and audio will play next time
-  });
-}
-
-function stopFeedbackAudio() {
-  if (feedbackAudio) {
-    feedbackAudio.pause();
-    feedbackAudio.currentTime = 0;
-    feedbackAudio = null;
-  }
-}
 
 /** Always light theme - prevents inheriting dark styles from the page */
 const LIGHT = {
@@ -111,18 +89,7 @@ function formatTime(ts: number) {
   return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
-let runningCountdownInterval: ReturnType<typeof setInterval> | null = null;
-
-function clearRunningCountdown() {
-  if (runningCountdownInterval !== null) {
-    clearInterval(runningCountdownInterval);
-    runningCountdownInterval = null;
-  }
-}
-
 function renderRunning(title: string, endsAt: number, subtitle?: string) {
-  clearRunningCountdown();
-
   const root = ensureOverlayRoot();
   root.innerHTML = "";
 
@@ -132,47 +99,21 @@ function renderRunning(title: string, endsAt: number, subtitle?: string) {
   card.innerHTML = `
     <div style="font-weight:800;margin-bottom:6px;color:${LIGHT.text}">${title}</div>
     ${subtitle ? `<div style="font-size:13px;color:${LIGHT.textMuted};margin-bottom:6px">${subtitle}</div>` : ""}
-    <div style="font-size:14px;color:${LIGHT.textMuted};margin-bottom:4px">
+    <div style="font-size:14px;color:${LIGHT.textMuted};margin-bottom:10px">
       Ends at <b style="color:${LIGHT.text}">${formatTime(endsAt)}</b>
     </div>
+    <div style="font-size:12px;color:${LIGHT.textMuted}">This will auto-hide in ~20 seconds.</div>
   `;
-
-  const countdownEl = document.createElement("div");
-  countdownEl.style.cssText = `font-size:15px;font-weight:700;color:${LIGHT.text};margin-bottom:10px;font-variant-numeric:tabular-nums;`;
-
-  const updateCountdown = () => {
-    const remaining = endsAt - Date.now();
-    if (remaining <= 0) {
-      countdownEl.textContent = "0s";
-      clearRunningCountdown();
-      return;
-    }
-    countdownEl.textContent = formatRemainingHms(remaining);
-  };
-
-  updateCountdown();
-  runningCountdownInterval = setInterval(updateCountdown, 1000);
-
-  card.appendChild(countdownEl);
-
-  const autoHideNote = document.createElement("div");
-  autoHideNote.style.cssText = `font-size:12px;color:${LIGHT.textMuted};`;
-  autoHideNote.textContent = "This will auto-hide in ~20 seconds.";
-  card.appendChild(autoHideNote);
 
   const btn = document.createElement("button");
   btn.textContent = "Dismiss";
   btn.style.cssText = `margin-top:10px;padding:8px 10px;border-radius:10px;border:1px solid ${LIGHT.border};background:${LIGHT.bg};color:${LIGHT.text};cursor:pointer;`;
-  btn.onclick = () => {
-    clearRunningCountdown();
-    root.innerHTML = "";
-  };
+  btn.onclick = () => (root.innerHTML = "");
 
   card.appendChild(btn);
   root.appendChild(card);
 
   window.setTimeout(() => {
-    clearRunningCountdown();
     const r = document.getElementById(OVERLAY_ID);
     if (r) r.innerHTML = "";
   }, 20_000);
@@ -200,32 +141,6 @@ function closeModal() {
   stopAudio();
   const root = document.getElementById(MODAL_ID);
   if (root) root.remove();
-}
-
-/** Defensive defaults when background sends a partial payload (e.g. old cached paths) */
-function normalizeFeedbackModalPayload(
-  p: Extract<Msg, { type: "SHOW_FEEDBACK_MODAL" }>["payload"],
-) {
-  const endedBlockType: BlockType =
-    p.endedBlockType === "work" ||
-    p.endedBlockType === "break" ||
-    p.endedBlockType === "dynamic"
-      ? p.endedBlockType
-      : "work";
-  return {
-    endedTitle: p.endedTitle,
-    nextTitle: p.nextTitle,
-    nextNeedsTopic: p.nextNeedsTopic,
-    isFinal: p.isFinal,
-    runId: p.runId,
-    inputRequired: Boolean(p.inputRequired),
-    snoozeMax: Number.isFinite(p.snoozeMax) ? p.snoozeMax : 0,
-    maxSnoozeMinutes: Number.isFinite(p.maxSnoozeMinutes)
-      ? Math.max(1, p.maxSnoozeMinutes)
-      : 15,
-    snoozeCount: Number.isFinite(p.snoozeCount) ? Math.max(0, p.snoozeCount) : 0,
-    endedBlockType,
-  };
 }
 
 function renderFeedbackModal(
@@ -537,7 +452,6 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
   }
 
   if (msg.type === "SHOW_FEEDBACK_MODAL") {
-    const n = normalizeFeedbackModalPayload(msg.payload);
     renderFeedbackModal(
       msg.payload.endedTitle,
       msg.payload.nextTitle,
@@ -556,39 +470,6 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
 
   if (msg.type === "HIDE_FEEDBACK_MODAL") {
     closeModal();
-    return;
-  }
-
-  if (msg.type === "SPEAK_TIME_UPDATE") {
-    const { sessionEndsAt } = msg.payload;
-    const remainingMs = sessionEndsAt - Date.now();
-
-    const timeStr = new Date().toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-    });
-
-    let remainingStr: string;
-    if (remainingMs < 60_000) {
-      remainingStr = "less than a minute";
-    } else {
-      const totalMinutes = Math.round(remainingMs / 60_000);
-      const hours = Math.floor(totalMinutes / 60);
-      const minutes = totalMinutes % 60;
-      if (hours > 0 && minutes > 0) {
-        remainingStr = `${hours} hour${hours > 1 ? "s" : ""} and ${minutes} minute${minutes > 1 ? "s" : ""}`;
-      } else if (hours > 0) {
-        remainingStr = `${hours} hour${hours > 1 ? "s" : ""}`;
-      } else {
-        remainingStr = `${minutes} minute${minutes > 1 ? "s" : ""}`;
-      }
-    }
-
-    const utterance = new SpeechSynthesisUtterance(
-      `It's ${timeStr}. The session ends in ${remainingStr}.`,
-    );
-    speechSynthesis.cancel();
-    speechSynthesis.speak(utterance);
     return;
   }
 });
