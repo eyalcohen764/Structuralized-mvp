@@ -11,8 +11,7 @@ export type BlockSettings = {
   endSnoozeMaxMinutes?: number;
   returnMaxCount?: number;
   returnSnoozeMaxMinutes?: number;
-  workAnnounceEveryMinutes?: number;
-  breakAnnounceEveryMinutes?: number;
+  alertVolume?: number; // 0–100, volume of the alert sound at block transitions
 };
 
 export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
@@ -22,8 +21,7 @@ export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
   endSnoozeMaxMinutes: 5,
   returnMaxCount: 0,
   returnSnoozeMaxMinutes: 5,
-  workAnnounceEveryMinutes: 0,
-  breakAnnounceEveryMinutes: 0,
+  alertVolume: 80,
 };
 
 export type SnoozeRecord = {
@@ -219,6 +217,7 @@ export type Msg =
         maxSnoozeMinutes: number;
         snoozeCount: number;
         endedBlockType: BlockType;
+        alertVolume: number;
       };
     }
   | {

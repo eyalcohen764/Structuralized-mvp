@@ -371,7 +371,21 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
     await notifyAllWindowsFeedbackModal(
       {
         type: "SHOW_FEEDBACK_MODAL",
-        payload: feedbackModalPayloadFromAwaitingState(awaiting),
+        payload: {
+          endedTitle,
+          nextTitle: "Session complete ✅",
+          nextNeedsTopic: false,
+          isFinal: true,
+          runId: s.runId,
+          inputRequired: endedBlock.type === 'break'
+            ? (resolvedSettings.breakInputRequired ?? false)
+            : (resolvedSettings.inputRequired ?? false),
+          snoozeMax,
+          maxSnoozeMinutes,
+          snoozeCount,
+          endedBlockType: endedBlock.type,
+          alertVolume: resolvedSettings.alertVolume ?? 80,
+        },
       },
       "Session complete",
       "Open a normal tab to view your report."
@@ -405,7 +419,21 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
   await notifyAllWindowsFeedbackModal(
     {
       type: "SHOW_FEEDBACK_MODAL",
-      payload: feedbackModalPayloadFromAwaitingState(awaiting),
+      payload: {
+        endedTitle,
+        nextTitle,
+        nextNeedsTopic,
+        isFinal: false,
+        runId: s.runId,
+        inputRequired: endedBlock.type === 'break'
+          ? (resolvedSettings.breakInputRequired ?? false)
+          : (resolvedSettings.inputRequired ?? false),
+        snoozeMax,
+        maxSnoozeMinutes,
+        snoozeCount,
+        endedBlockType: endedBlock.type,
+        alertVolume: resolvedSettings.alertVolume ?? 80,
+      },
     },
     "Block finished",
     "Open a normal tab to reflect."
@@ -464,9 +492,19 @@ chrome.runtime.onMessageExternal.addListener((msg: unknown, _sender, sendRespons
         await notifyAllWindowsFeedbackModal(
           {
             type: "SHOW_FEEDBACK_MODAL",
-            payload: feedbackModalPayloadFromAwaitingState(startPromptState, {
-              nextTitleOverride: `Choose focus for: ${firstTitle}`,
-            }),
+            payload: {
+              endedTitle: "Session starting",
+              nextTitle: `Choose focus for: ${firstTitle}`,
+              nextNeedsTopic: true,
+              isFinal: false,
+              runId,
+              inputRequired: false,
+              snoozeMax: 0,
+              maxSnoozeMinutes: 0,
+              snoozeCount: 0,
+              endedBlockType: "dynamic",
+              alertVolume: startPromptState.resolvedSettings.alertVolume ?? 80,
+            },
           },
           "Session starting",
           "Choose a focus for your first dynamic block."
@@ -742,7 +780,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
 
       await setState(running);
       chrome.alarms.create(ALARM_NAME, { when: endsAt });
-      scheduleRemindAlarm(s.plan, endedBlockIndex);
+      await hideFeedbackModalAllTabs(); // closes modal + stops audio on every tab
 
       const block = s.plan.blocks[endedBlockIndex];
       await notifyActiveTab(
@@ -853,9 +891,31 @@ async function showFeedbackOnActiveTab(tabId: number) {
   const tab = await chrome.tabs.get(tabId).catch(() => null);
   if (!tab?.url || isRestrictedUrl(tab.url)) return;
 
+  const endedBlockType = s.endedBlock.type;
+  const snoozeMax =
+    endedBlockType === "break"
+      ? (s.resolvedSettings.returnMaxCount ?? 0)
+      : (s.resolvedSettings.endMaxCount ?? 0);
+  const maxSnoozeMinutes =
+    endedBlockType === "break"
+      ? (s.resolvedSettings.returnSnoozeMaxMinutes ?? 10)
+      : (s.resolvedSettings.endSnoozeMaxMinutes ?? 15);
+
   const msg: Msg = {
     type: "SHOW_FEEDBACK_MODAL",
-    payload: feedbackModalPayloadFromAwaitingState(s),
+    payload: {
+      endedTitle: s.endedBlockTitle,
+      nextTitle: s.nextBlockTitle,
+      nextNeedsTopic: s.nextBlockNeedsTopic,
+      isFinal: s.nextIndex >= s.plan.blocks.length,
+      runId: s.runId,
+      inputRequired: s.resolvedSettings.inputRequired ?? false,
+      snoozeMax,
+      maxSnoozeMinutes,
+      snoozeCount: s.snoozeCount,
+      endedBlockType,
+      alertVolume: s.resolvedSettings.alertVolume ?? 80,
+    },
   };
 
   try {

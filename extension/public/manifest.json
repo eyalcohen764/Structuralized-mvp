@@ -23,9 +23,6 @@
     "matches": ["http://localhost:5173/*"]
   },
   "web_accessible_resources": [
-    {
-      "resources": ["remembering-these-places_E_minor.wav"],
-      "matches": ["<all_urls>"]
-    }
+    { "resources": ["audio/*"], "matches": ["<all_urls>"] }
   ]
 }
