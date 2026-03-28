@@ -11,13 +11,23 @@ import {
   Box,
   Tooltip,
   IconButton,
+  TextField,
+  CircularProgress,
+  Snackbar,
 } from "@mui/material";
 import ArrowBackIcon from "@mui/icons-material/ArrowBack";
 import SettingsIcon from "@mui/icons-material/Settings";
+import EditIcon from "@mui/icons-material/Edit";
 import { Link as RouterLink } from "react-router-dom";
 import { getExtensionIdAsync } from "./config";
 import { useAuth } from "./AuthContext";
-import { ensureReportSaved } from "./reportStorage";
+import {
+  ensureReportSaved,
+  getReportRecord,
+  updateReportName,
+  getDisplayName,
+  type ReportRecord,
+} from "./reportStorage";
 import {
   DEFAULT_BLOCK_SETTINGS,
   type BlockSettings,
@@ -639,6 +649,13 @@ export default function ReportPage() {
   const [err, setErr] = useState<string | null>(null);
   const savedRef = useRef<Set<string>>(new Set());
 
+  // ── Rename state ──
+  const [record, setRecord] = useState<ReportRecord | null>(null);
+  const [editingName, setEditingName] = useState(false);
+  const [editNameValue, setEditNameValue] = useState("");
+  const [savingName, setSavingName] = useState(false);
+  const [snack, setSnack] = useState<{ msg: string; severity: "success" | "error" } | null>(null);
+
   const plannedTimestamps = useMemo<PlannedTimestamp[]>(
     () => (report ? computePlannedTimestamps(report.blocks, report) : []),
     [report],
@@ -670,14 +687,56 @@ export default function ReportPage() {
     });
   }, [runId]);
 
-  // Save report to Cloudinary + Firestore once loaded (idempotent)
+  // Save report to Cloudinary + Firestore once loaded (idempotent), then load record for rename
   useEffect(() => {
     if (!report || !user || savedRef.current.has(report.runId)) return;
     savedRef.current.add(report.runId);
-    ensureReportSaved(user.uid, report).catch((e: unknown) => {
-      console.error("[ReportPage] Failed to save report:", e);
-    });
+    ensureReportSaved(user.uid, report)
+      .then(() => getReportRecord(user.uid, report.runId))
+      .then((rec) => { if (rec) setRecord(rec); })
+      .catch((e: unknown) => {
+        console.error("[ReportPage] Failed to save/load report:", e);
+      });
   }, [report, user]);
+
+  function handleStartEditName() {
+    if (!record) return;
+    setEditNameValue(getDisplayName(record));
+    setEditingName(true);
+  }
+
+  function handleCancelEditName() {
+    setEditingName(false);
+    setEditNameValue("");
+  }
+
+  async function handleSaveName() {
+    const trimmed = editNameValue.trim();
+    if (!trimmed || !user || !record) {
+      handleCancelEditName();
+      return;
+    }
+    setSavingName(true);
+    try {
+      await updateReportName(user.uid, record.runId, trimmed);
+      setRecord((prev) => (prev ? { ...prev, name: trimmed } : prev));
+      setSnack({ msg: "Name updated", severity: "success" });
+      setEditingName(false);
+    } catch {
+      setSnack({ msg: "Failed to rename. Try again.", severity: "error" });
+    } finally {
+      setSavingName(false);
+    }
+  }
+
+  function handleNameKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      void handleSaveName();
+    } else if (e.key === "Escape") {
+      handleCancelEditName();
+    }
+  }
 
   const statusLabel = report
     ? report.endedEarly
@@ -696,13 +755,36 @@ export default function ReportPage() {
         alignItems="flex-start"
         sx={{ mb: 2.5 }}
       >
-        <Stack>
-          <Typography
-            variant="h5"
-            sx={{ fontWeight: 900, letterSpacing: -0.5 }}
-          >
-            Session Report
-          </Typography>
+        <Stack spacing={0.25}>
+          {editingName ? (
+            <Stack direction="row" alignItems="center" spacing={0.75}>
+              <TextField
+                size="small"
+                autoFocus
+                value={editNameValue}
+                onChange={(e) => setEditNameValue(e.target.value)}
+                onKeyDown={handleNameKeyDown}
+                onBlur={() => void handleSaveName()}
+                disabled={savingName}
+                sx={{ "& input": { fontWeight: 700, fontSize: "1.1rem" } }}
+              />
+              {savingName && <CircularProgress size={18} />}
+            </Stack>
+          ) : (
+            <Stack direction="row" alignItems="center" spacing={0.5}>
+              <Typography variant="h5" sx={{ fontWeight: 900, letterSpacing: -0.5 }}>
+                {record ? getDisplayName(record) : "Session Report"}
+              </Typography>
+              <IconButton
+                size="small"
+                onClick={handleStartEditName}
+                disabled={!record}
+                title="Rename report"
+              >
+                <EditIcon sx={{ fontSize: 18 }} />
+              </IconButton>
+            </Stack>
+          )}
           {report && (
             <Typography variant="body2" sx={{ color: "text.secondary" }}>
               {statusLabel} · {report.blocks.length} blocks
@@ -764,6 +846,17 @@ export default function ReportPage() {
           </Stack>
         </>
       )}
+
+      <Snackbar
+        open={snack !== null}
+        autoHideDuration={3500}
+        onClose={() => setSnack(null)}
+        anchorOrigin={{ vertical: "bottom", horizontal: "center" }}
+      >
+        <Alert severity={snack?.severity} onClose={() => setSnack(null)} sx={{ width: "100%" }}>
+          {snack?.msg}
+        </Alert>
+      </Snackbar>
     </Container>
   );
 }

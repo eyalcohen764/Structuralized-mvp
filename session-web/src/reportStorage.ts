@@ -2,6 +2,12 @@ import {
   doc,
   getDoc,
   setDoc,
+  updateDoc,
+  deleteDoc,
+  collection,
+  query,
+  orderBy,
+  getDocs,
   serverTimestamp,
   Timestamp,
   type FieldValue,
@@ -11,6 +17,7 @@ import type { SessionReport } from "../../extension/src/shared";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** Read-side type: what Firestore returns when fetching a report record. */
 export type ReportRecord = {
   runId: string;
   cloudinaryUrl: string;
@@ -18,6 +25,12 @@ export type ReportRecord = {
   endedAt: Timestamp | null;
   blockCount: number;
   endedEarly: boolean;
+  savedAt: Timestamp;
+  name?: string;
+};
+
+/** Write-side type: used only when calling setDoc (savedAt is a write sentinel). */
+type ReportRecordWrite = Omit<ReportRecord, "savedAt"> & {
   savedAt: FieldValue;
 };
 
@@ -50,18 +63,52 @@ async function uploadReportToCloudinary(
   return data.secure_url;
 }
 
-// ─── Firestore ────────────────────────────────────────────────────────────────
+// ─── Firestore helpers ────────────────────────────────────────────────────────
 
 function reportDocRef(uid: string, runId: string) {
   return doc(db, "users", uid, "reports", runId);
 }
 
-async function getReportRecord(
+export async function getReportRecord(
   uid: string,
   runId: string,
 ): Promise<ReportRecord | null> {
   const snap = await getDoc(reportDocRef(uid, runId));
   return snap.exists() ? (snap.data() as ReportRecord) : null;
+}
+
+// ─── Timestamp helper ─────────────────────────────────────────────────────────
+
+/**
+ * Converts a Firestore Timestamp (or plain {seconds, nanoseconds} object that
+ * Firestore may return in some SDK configurations) to a JS Date.
+ */
+export function firestoreTimestampToDate(
+  ts: Timestamp | { seconds: number; nanoseconds: number },
+): Date {
+  if (typeof (ts as Timestamp).toDate === "function") {
+    return (ts as Timestamp).toDate();
+  }
+  return new Date((ts as { seconds: number }).seconds * 1000);
+}
+
+// ─── Display name helper ──────────────────────────────────────────────────────
+
+/**
+ * Returns the user-defined name if set, otherwise a formatted date/time string
+ * derived from startedAt (e.g. "Mar 28, 2026, 2:30 PM").
+ */
+export function getDisplayName(
+  record: Pick<ReportRecord, "name" | "startedAt">,
+): string {
+  if (record.name) return record.name;
+  return firestoreTimestampToDate(record.startedAt).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
@@ -79,7 +126,7 @@ export async function ensureReportSaved(
 
   const cloudinaryUrl = await uploadReportToCloudinary(report, uid);
 
-  const record: ReportRecord = {
+  const record: ReportRecordWrite = {
     runId: report.runId,
     cloudinaryUrl,
     startedAt: Timestamp.fromMillis(report.startedAt),
@@ -91,4 +138,33 @@ export async function ensureReportSaved(
 
   await setDoc(reportDocRef(uid, report.runId), record);
   return cloudinaryUrl;
+}
+
+/**
+ * Lists all reports for a user, sorted newest first.
+ */
+export async function listReports(uid: string): Promise<ReportRecord[]> {
+  const col = collection(db, "users", uid, "reports");
+  const q = query(col, orderBy("startedAt", "desc"));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => d.data() as ReportRecord);
+}
+
+/**
+ * Updates the user-defined display name of a report.
+ */
+export async function updateReportName(
+  uid: string,
+  runId: string,
+  name: string,
+): Promise<void> {
+  await updateDoc(reportDocRef(uid, runId), { name });
+}
+
+/**
+ * Permanently deletes a report record from Firestore.
+ * The associated Cloudinary file is NOT deleted (no API secret available on the frontend).
+ */
+export async function deleteReport(uid: string, runId: string): Promise<void> {
+  await deleteDoc(reportDocRef(uid, runId));
 }

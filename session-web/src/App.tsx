@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Box, CircularProgress, Typography } from "@mui/material";
 import ReportPage from "./ReportPage";
+import ArchivePage from "./ArchivePage";
 import BuilderPage from "./SessionBuilderPage";
 import ActiveSessionPage from "./ActiveSessionPage";
 import HomePage from "./HomePage";
@@ -65,6 +66,14 @@ export default function App() {
         element={
           <RequireAuth>
             <ReportPage />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/archive"
+        element={
+          <RequireAuth>
+            <ArchivePage />
           </RequireAuth>
         }
       />

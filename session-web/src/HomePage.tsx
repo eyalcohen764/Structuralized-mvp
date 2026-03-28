@@ -15,6 +15,8 @@ import MonitorHeartIcon from "@mui/icons-material/MonitorHeart";
 import BarChartIcon from "@mui/icons-material/BarChart";
 import ArrowForwardIcon from "@mui/icons-material/ArrowForward";
 import LogoutIcon from "@mui/icons-material/Logout";
+import HistoryIcon from "@mui/icons-material/History";
+import { Link as RouterLink } from "react-router-dom";
 import { useAuth } from "./AuthContext";
 
 interface Feature {
@@ -78,9 +80,25 @@ export default function HomePage() {
   const handleGetStarted = () => navigate("/app");
 
   return (
-    <Box sx={{ minHeight: "100vh", background: "linear-gradient(160deg, #f8fafc 0%, #f1f5f9 100%)", position: "relative" }}>
+    <Box
+      sx={{
+        minHeight: "100vh",
+        background: "linear-gradient(160deg, #f8fafc 0%, #f1f5f9 100%)",
+        position: "relative",
+      }}
+    >
       {/* ── User avatar + logout ── */}
-      <Box sx={{ position: "absolute", top: 16, right: 16, display: "flex", alignItems: "center", gap: 1, zIndex: 10 }}>
+      <Box
+        sx={{
+          position: "absolute",
+          top: 16,
+          right: 16,
+          display: "flex",
+          alignItems: "center",
+          gap: 1,
+          zIndex: 10,
+        }}
+      >
         {user?.photoURL && (
           <Avatar
             src={user.photoURL}
@@ -88,6 +106,16 @@ export default function HomePage() {
             sx={{ width: 34, height: 34 }}
           />
         )}
+        <Tooltip title="Session Archive">
+          <IconButton
+            size="small"
+            component={RouterLink}
+            to="/archive"
+            sx={{ color: "#64748b" }}
+          >
+            <HistoryIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
         <Tooltip title="Sign out">
           <IconButton size="small" onClick={signOut} sx={{ color: "#64748b" }}>
             <LogoutIcon fontSize="small" />
@@ -113,7 +141,8 @@ export default function HomePage() {
             width: 480,
             height: 480,
             borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 70%)",
+            background:
+              "radial-gradient(circle, rgba(59,130,246,0.07) 0%, transparent 70%)",
             pointerEvents: "none",
           }}
         />
@@ -125,7 +154,8 @@ export default function HomePage() {
             width: 360,
             height: 360,
             borderRadius: "50%",
-            background: "radial-gradient(circle, rgba(139,92,246,0.06) 0%, transparent 70%)",
+            background:
+              "radial-gradient(circle, rgba(139,92,246,0.06) 0%, transparent 70%)",
             pointerEvents: "none",
           }}
         />
@@ -269,17 +299,49 @@ export default function HomePage() {
             variant="body2"
             sx={{ color: "#94a3b8", mb: 2.5, fontWeight: 500 }}
           >
-            Ready to take control of your work sessions?
+            Ready to take control of your self-directed work?
           </Typography>
-          <Button
-            variant="contained"
-            size="large"
-            endIcon={<ArrowForwardIcon />}
-            onClick={handleGetStarted}
-            sx={CTA_SX}
+          <Stack
+            direction={{ xs: "column", sm: "row" }}
+            spacing={2}
+            justifyContent="center"
+            alignItems="center"
           >
-            Start Building Your Session
-          </Button>
+            <Button
+              variant="contained"
+              size="large"
+              endIcon={<ArrowForwardIcon />}
+              onClick={handleGetStarted}
+              sx={CTA_SX}
+            >
+              Start Building Your Session
+            </Button>
+            <Button
+              component={RouterLink}
+              to="/archive"
+              variant="outlined"
+              size="large"
+              startIcon={<HistoryIcon />}
+              sx={{
+                px: 5,
+                py: 1.75,
+                borderRadius: 100,
+                fontSize: "1rem",
+                fontWeight: 600,
+                textTransform: "none",
+                color: "#0f172a",
+                borderColor: "#0f172a",
+                "&:hover": {
+                  borderColor: "#0f172a",
+                  bgcolor: "rgba(15,23,42,0.05)",
+                  transform: "translateY(-1px)",
+                },
+                transition: "all 0.2s ease",
+              }}
+            >
+              View Archive
+            </Button>
+          </Stack>
         </Box>
       </Container>
     </Box>
