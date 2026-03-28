@@ -13,7 +13,7 @@ Productivity timer Chrome extension MVP ("Session Blocks") with two parts:
 - **extension/** — Chrome MV3 extension: injects overlays on webpages, manages timed focus blocks, captures user reflections
 - **session-web/** — React website (localhost:5173): provides Start UI and Report viewing
 
-Both are independent TypeScript + React 19 + Vite apps (no monorepo workspace linking). **Exception**: `session-web/src/reportStorage.ts` imports `SessionReport` directly from `../../extension/src/shared` — the two projects share types via relative path, not a package.
+Both are independent TypeScript + React 19 + Vite apps (no monorepo workspace linking). Multiple files in `session-web/src/` import types directly from `../../extension/src/shared` via relative path — this is the intentional cross-project type sharing pattern, not a package dependency.
 
 ## Build & Development Commands
 
@@ -60,7 +60,7 @@ VITE_CLOUDINARY_UPLOAD_PRESET=
 - `GET_STATE` — polls current `SessionRuntimeState`
 
 **Popup → Background** (internal messaging, same extension):
-- `PAUSE_SESSION { payload: { reason } }` — pauses the running block; cancels the alarm
+- `PAUSE_SESSION` — pauses the running block; cancels the alarm
 - `RESUME_SESSION` — resumes a paused block; recreates alarm with remaining time
 - `STOP_SESSION` — immediately ends the session; saves report with `endedEarly: true`
 
@@ -71,14 +71,18 @@ VITE_CLOUDINARY_UPLOAD_PRESET=
 **Content Script → Background**:
 - `SUBMIT_BLOCK_FEEDBACK { reflection, nextTopic? }` — submits user reflection after a block ends
 - `OPEN_REPORT { runId }` — triggers opening the web report page
+- `SNOOZE_BLOCK { minutes }` — snoozes the current block end by N minutes
+- `HIDE_FEEDBACK_MODAL` — dismisses the feedback modal without submitting
 
 ### Key Files
 
-- **`extension/src/shared.ts`** — Single source of truth: all message types (`Msg`), `SessionRuntimeState` discriminated union, `SessionPlan`, `ReportBlock`, `SessionReport`, `PauseRecord`, and all `chrome.storage.local` keys. Touch this first when changing data contracts.
+- **`extension/src/shared.ts`** — Single source of truth: all message types (`Msg`), `SessionRuntimeState` discriminated union, `SessionPlan`, `SessionBlock`, `BlockSettings`, `ReportBlock`, `SessionReport`, `PauseRecord`, `SnoozeRecord`, storage keys, and `resolveSettings()` (merges `DEFAULT_BLOCK_SETTINGS` → `globalSettings` → `localSettings`). Touch this first when changing data contracts.
 - **`extension/src/background/background.ts`** — Service worker: alarm scheduling, state machine transitions, message routing, report persistence, fallback notifications.
 - **`extension/src/content/content.ts`** — Plain DOM (no React) injected into active tabs. Renders the running overlay and the reflection/feedback modal. Uses raw DOM because it runs inside arbitrary third-party pages.
 - **`extension/src/runner/runner.tsx`** — Extension popup (React). Shows current state, Pause/Resume/Stop controls with inline confirmation flows.
+- **`session-web/src/ActiveSessionPage.tsx`** — Shown during an active session; polls extension state and displays running/paused/awaiting_feedback status.
 - **`session-web/src/SessionBuilderPage.tsx`** — Main session creation UI with block configuration and live clock estimates.
+- **`session-web/src/components/BlockSettingsPanel.tsx`** — Reusable panel for configuring `BlockSettings` (snooze limits, input requirements, alert volume). Imports types from `extension/src/shared`.
 - **`session-web/src/ReportPage.tsx`** — Displays a completed `SessionReport` with Planned vs Actual comparison, pause segment breakdown, and stopped-block markers.
 - **`session-web/src/App.tsx`** — Routes: `/login`, `/` (HomePage), `/app` (SessionGateway → ActiveSessionPage or SessionBuilderPage), `/report`. All routes except `/login` are wrapped in `RequireAuth`.
 - **`session-web/src/AuthContext.tsx`** — Firebase Auth context: Google sign-in via `signInWithPopup`, exposes `useAuth()` hook (`user`, `loading`, `signInWithGoogle`, `signOut`).
@@ -105,9 +109,9 @@ idle → running → awaiting_feedback → completed
       (Stop) → completed  [endedEarly: true]
 ```
 
-- **`running`** — block timer active. Stores `currentBlockStartedAt`, `currentBlockEndsAt`, `currentPauses[]`.
-- **`paused`** — alarm cancelled. Stores `pausedAt`, `remainingMs`, `pauseReason?`, accumulated `currentPauses[]`.
-- **`awaiting_feedback`** — modal shown to user. Has `endedBlock`, `nextIndex`, `nextBlockNeedsTopic`.
+- **`running`** — block timer active. Stores `currentBlockStartedAt`, `currentBlockEndsAt`, `currentPauses[]`, `snoozeCount`, `currentSnoozes[]`, `priorSnoozes[]`.
+- **`paused`** — alarm cancelled. Stores `pausedAt`, `remainingMs`, `pauseReason?`, `currentPauses[]`, snooze fields.
+- **`awaiting_feedback`** — modal shown to user. Has `endedBlock`, `endedBlockIndex`, `endedBlockTitle`, `nextIndex`, `nextBlockTitle`, `nextBlockNeedsTopic`, `snoozeCount`, `resolvedSettings`.
 - **`completed`** — report saved to storage under `report_<runId>`.
 
 ### Alarm Strategy
@@ -132,9 +136,19 @@ idle → running → awaiting_feedback → completed
 - **break** — no topic; `BREAK` label in pause breakdown
 - **dynamic** — topic chosen at runtime when the block starts; if paused before topic is set, shows `DYNAMIC` in breakdown
 
+### Block Settings
+
+`BlockSettings` controls per-block behavior and is resolved via `resolveSettings(plan, blockIndex)` (defaults ← globalSettings ← localSettings):
+- `inputRequired` / `breakInputRequired` — whether reflection is mandatory
+- `endMaxCount` / `endSnoozeMaxMinutes` — snooze limit when block ends
+- `returnMaxCount` / `returnSnoozeMaxMinutes` — snooze limit on return prompts
+- `alertVolume` (0–100) — volume of the audio alert at block transitions
+
+`SessionBlock` has `id`, `type`, `minutes`, `topic?`, `goals?`, and `localSettings?: Partial<BlockSettings>`.
+
 ### Report Data Model
 
-`ReportBlock` has `startedAt`, `endedAt` (actual wall-clock), `minutes` (planned), `reflection?`, and `pauses?: PauseRecord[]`. `PauseRecord` holds `pausedAt`, `resumedAt`, `reason?`. `SessionReport` has `endedEarly?: boolean` for stopped sessions.
+`ReportBlock` has `startedAt`, `endedAt` (actual wall-clock), `minutes` (planned), `topic?`, `goals?`, `reflection?`, `pauses?: PauseRecord[]`, `snoozes?: SnoozeRecord[]`, and `plannedSettings?: BlockSettings`. `PauseRecord` holds `pausedAt`, `resumedAt`, `reason?`. `SnoozeRecord` holds `snoozedAt`, `resumedAt`, `minutes`. `SessionReport` has `endedEarly?: boolean` for stopped sessions.
 
 ## Conventions
 
