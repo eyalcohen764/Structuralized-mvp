@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AppBar,
   Toolbar,
@@ -43,6 +43,14 @@ import {
   type StartSessionExternalMsg,
 } from "../../extension/src/shared";
 import BlockSettingsPanel from "./components/BlockSettingsPanel";
+import TopicAutocomplete from "./components/TopicAutocomplete";
+import { useAuth } from "./AuthContext";
+import {
+  listSavedTopics,
+  createSavedTopic,
+  deleteSavedTopic,
+  type SavedTopic,
+} from "./topicStorage";
 import { getExtensionId, getExtensionIdAsync, setExtensionId } from "./config";
 
 function canTalkToExtension(): boolean {
@@ -100,8 +108,10 @@ function formatClockRange(startMs: number, endMs: number): string {
 }
 
 export default function App() {
+  const { user } = useAuth();
+
   const [blocks, setBlocks] = useState<SessionBlock[]>([
-    { id: uid(), type: "work", minutes: 25, topic: "Deep work" },
+    { id: uid(), type: "work", minutes: 25, topic: "" },
   ]);
 
   const [globalSettings, setGlobalSettings] = useState<BlockSettings>(
@@ -117,6 +127,26 @@ export default function App() {
   const [extensionIdInput, setExtensionIdInput] = useState(getExtensionId());
 
   const [now, setNow] = useState(() => Date.now());
+
+  const [savedTopics, setSavedTopics] = useState<SavedTopic[]>([]);
+  const [topicsLoading, setTopicsLoading] = useState(true);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    setTopicsLoading(true);
+    listSavedTopics(user.uid)
+      .then((topics) => {
+        if (!cancelled) setSavedTopics(topics);
+      })
+      .catch(console.error)
+      .finally(() => {
+        if (!cancelled) setTopicsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 10_000);
@@ -167,6 +197,37 @@ export default function App() {
       prev.map((b) => (b.id === id ? { ...b, ...patch } : b)),
     );
   }
+
+  const handleSaveTopic = useCallback(
+    (name: string) => {
+      if (!user) return;
+      const tempId =
+        Math.random().toString(16).slice(2) + "-" + Date.now().toString(16);
+      const optimistic: SavedTopic = {
+        id: tempId,
+        name,
+        createdAt: { seconds: Math.floor(Date.now() / 1000), nanoseconds: 0 } as SavedTopic["createdAt"],
+      };
+      setSavedTopics((prev) =>
+        [...prev, optimistic].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      createSavedTopic(user.uid, name).then((saved) => {
+        setSavedTopics((prev) =>
+          prev.map((t) => (t.id === tempId ? saved : t)),
+        );
+      }).catch(console.error);
+    },
+    [user],
+  );
+
+  const handleDeleteTopic = useCallback(
+    (topicId: string) => {
+      if (!user) return;
+      deleteSavedTopic(user.uid, topicId).catch(console.error);
+      setSavedTopics((prev) => prev.filter((t) => t.id !== topicId));
+    },
+    [user],
+  );
 
   function validatePlan(): string | null {
     if (blocks.length === 0) return "Add at least one block.";
@@ -640,16 +701,15 @@ export default function App() {
 
                           {/* Topic */}
                           {b.type === "work" ? (
-                            <TextField
-                              label="Work topic"
-                              placeholder="e.g., CS problem set"
+                            <TopicAutocomplete
                               value={b.topic ?? ""}
-                              onChange={(e) =>
-                                updateBlock(b.id, { topic: e.target.value })
+                              onChange={(topic) =>
+                                updateBlock(b.id, { topic })
                               }
-                              size="small"
-                              fullWidth
-                              helperText="Required for Work blocks"
+                              savedTopics={savedTopics}
+                              loading={topicsLoading}
+                              onSave={handleSaveTopic}
+                              onDelete={handleDeleteTopic}
                             />
                           ) : (
                             <TextField

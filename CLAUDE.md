@@ -84,7 +84,9 @@ VITE_CLOUDINARY_UPLOAD_PRESET=
 - **`session-web/src/SessionBuilderPage.tsx`** — Main session creation UI with block configuration and live clock estimates.
 - **`session-web/src/components/BlockSettingsPanel.tsx`** — Reusable panel for configuring `BlockSettings` (snooze limits, input requirements, alert volume). Imports types from `extension/src/shared`.
 - **`session-web/src/ReportPage.tsx`** — Displays a completed `SessionReport` with Planned vs Actual comparison, pause segment breakdown, and stopped-block markers.
-- **`session-web/src/App.tsx`** — Routes: `/login`, `/` (HomePage), `/app` (SessionGateway → ActiveSessionPage or SessionBuilderPage), `/report`. All routes except `/login` are wrapped in `RequireAuth`.
+- **`session-web/src/ArchivePage.tsx`** — Lists saved reports from Firestore with search/filter, inline rename, delete, and expand-to-preview. Uses `ReportRecord` from `reportStorage.ts`.
+- **`session-web/src/components/ReportCard.tsx`** — Reusable card used in `ArchivePage` per saved report; supports inline rename, delete confirmation, and link to `/report`.
+- **`session-web/src/App.tsx`** — Routes: `/login`, `/` (HomePage), `/app` (SessionGateway → ActiveSessionPage or SessionBuilderPage), `/report`, `/archive`. All routes except `/login` are wrapped in `RequireAuth`.
 - **`session-web/src/AuthContext.tsx`** — Firebase Auth context: Google sign-in via `signInWithPopup`, exposes `useAuth()` hook (`user`, `loading`, `signInWithGoogle`, `signOut`).
 - **`session-web/src/reportStorage.ts`** — Cloud persistence: uploads `SessionReport` JSON to Cloudinary, saves metadata (`cloudinaryUrl`, timestamps, `blockCount`) to Firestore under `users/{uid}/reports/{runId}`. Idempotent — skips re-upload if already saved.
 - **`session-web/src/extensionState.ts`** — Thin helper that calls `GET_STATE` and returns the session `status` string; used by `SessionGateway` to poll every 4 s.
