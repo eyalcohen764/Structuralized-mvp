@@ -12,6 +12,17 @@ export type BlockSettings = {
   returnMaxCount?: number;
   returnSnoozeMaxMinutes?: number;
   alertVolume?: number; // 0–100, volume of the alert sound at block transitions
+
+  // Time awareness — Work / Dynamic
+  quarterAlerts?: boolean;
+  preEndFrom?: number; // 0 = off; otherwise ring every 5 min from this many min before end
+
+  // Time awareness — Break
+  breakQuarterAlerts?: boolean;
+  breakPreEndFrom?: number; // 0 = off; same semantics as preEndFrom
+
+  // Time awareness volume (global-only, not overridable per-block in UI)
+  timeAwarenessVolume?: number; // 0–100
 };
 
 export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
@@ -22,6 +33,11 @@ export const DEFAULT_BLOCK_SETTINGS: BlockSettings = {
   returnMaxCount: 0,
   returnSnoozeMaxMinutes: 5,
   alertVolume: 80,
+  quarterAlerts: false,
+  preEndFrom: 0,
+  breakQuarterAlerts: false,
+  breakPreEndFrom: 0,
+  timeAwarenessVolume: 70,
 };
 
 export type SnoozeRecord = {
@@ -153,6 +169,13 @@ export type SessionRuntimeState =
       report: SessionReport;
     };
 
+// ─── Time awareness constants ────────────────────────────────────────────────
+
+export const PRE_END_THRESHOLDS = [30, 25, 20, 15, 10, 5] as const;
+export type PreEndMinutes = (typeof PRE_END_THRESHOLDS)[number];
+
+export const TA_ALARM_PREFIX = "ta_";
+
 // ─── Storage keys ─────────────────────────────────────────────────────────────
 
 export const STORAGE_KEY = "session_runtime_v3";
@@ -206,4 +229,5 @@ export type Msg =
   | { type: "RESUME_SESSION" }
   | { type: "STOP_SESSION" }
   | { type: "SNOOZE_BLOCK"; payload: { minutes: number } }
-  | { type: "HIDE_FEEDBACK_MODAL" };
+  | { type: "HIDE_FEEDBACK_MODAL" }
+  | { type: "SPEAK_ALERT"; payload: { text: string; volume: number } };

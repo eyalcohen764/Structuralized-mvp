@@ -4,8 +4,11 @@ import {
   STORAGE_KEY,
   REPORT_PREFIX,
   LATEST_REPORT_KEY,
+  TA_ALARM_PREFIX,
+  PRE_END_THRESHOLDS,
   resolveSettings,
   type BlockSettings,
+  type BlockType,
   type Msg,
   type PauseRecord,
   type PendingSnooze,
@@ -178,6 +181,83 @@ function finalizeSnoozes(
   return all.length > 0 ? all : undefined;
 }
 
+// ─── Time awareness helpers ──────────────────────────────────────────────────
+
+function scheduleTimeAwarenessAlerts(
+  plan: SessionPlan,
+  blockIndex: number,
+  activeElapsedMs: number,
+): void {
+  const settings = resolveSettings(plan, blockIndex);
+  const volume = settings.timeAwarenessVolume ?? 70;
+  if (volume === 0) return;
+
+  const block = plan.blocks[blockIndex];
+  const durationMs = msFromMinutes(block.minutes);
+  const nowMs = now();
+  const isBreak = block.type === "break";
+
+  // Quarter milestones (25%, 50%, 75%) — only for blocks >= 10 min
+  const quarterEnabled = isBreak ? settings.breakQuarterAlerts : settings.quarterAlerts;
+  if (quarterEnabled && block.minutes >= 10) {
+    for (const pct of [25, 50, 75]) {
+      const milestoneMs = durationMs * (pct / 100);
+      if (activeElapsedMs < milestoneMs) {
+        chrome.alarms.create(`${TA_ALARM_PREFIX}q${pct}_${blockIndex}`, {
+          when: nowMs + (milestoneMs - activeElapsedMs),
+        });
+      }
+    }
+  }
+
+  // Pre-end countdowns — ring every 5 min starting from preEndFrom before end
+  const preEndFrom = isBreak
+    ? (settings.breakPreEndFrom ?? 0)
+    : (settings.preEndFrom ?? 0);
+
+  if (preEndFrom > 0) {
+    for (const threshold of PRE_END_THRESHOLDS) {
+      if (threshold > preEndFrom) continue;
+      const alertAtMs = durationMs - threshold * 60_000;
+      if (alertAtMs > 0 && activeElapsedMs < alertAtMs) {
+        chrome.alarms.create(`${TA_ALARM_PREFIX}pre${threshold}_${blockIndex}`, {
+          when: nowMs + (alertAtMs - activeElapsedMs),
+        });
+      }
+    }
+  }
+}
+
+async function clearTimeAwarenessAlarms(): Promise<void> {
+  const alarms = await chrome.alarms.getAll();
+  for (const a of alarms) {
+    if (a.name.startsWith(TA_ALARM_PREFIX)) {
+      await chrome.alarms.clear(a.name);
+    }
+  }
+}
+
+function buildAlertText(alarmName: string): string {
+  const clockTime = new Date().toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  // Quarter milestone: ta_q25_0, ta_q50_0, ta_q75_0
+  const qMatch = alarmName.match(/q(\d+)_/);
+  if (qMatch) {
+    return `${qMatch[1]} percent of the block complete. The time is ${clockTime}.`;
+  }
+
+  // Pre-end countdown: ta_pre30_0, ta_pre5_0, etc.
+  const preMatch = alarmName.match(/pre(\d+)_/);
+  if (preMatch) {
+    return `${preMatch[1]} minutes remaining. The time is ${clockTime}.`;
+  }
+
+  return `Time check. The time is ${clockTime}.`;
+}
+
 async function startBlock(
   runId: string,
   origin: string | undefined,
@@ -221,14 +301,33 @@ async function startBlock(
     "Session running",
     titleForBlock(currentIndex, plan.blocks.length, block)
   );
+
+  scheduleTimeAwarenessAlerts(plan, currentIndex, 0);
 }
 
-// ─── Alarm handler ────────────────────────────────────────────────────────────
+// ─── Alarm handler ��───────────────────���───────────────────────────────────────
 
 chrome.alarms.onAlarm.addListener(async (alarm) => {
   if (alarm.name.startsWith(NOTIF_CLEAR_ALARM_PREFIX)) {
     const notifId = alarm.name.slice(NOTIF_CLEAR_ALARM_PREFIX.length);
     await chrome.notifications.clear(notifId);
+    return;
+  }
+
+  // Time awareness spoken alerts
+  if (alarm.name.startsWith(TA_ALARM_PREFIX)) {
+    const s = await getState();
+    if (s.status !== "running") return;
+
+    const volume = resolveSettings(s.plan, s.currentIndex).timeAwarenessVolume ?? 70;
+    if (volume === 0) return;
+
+    const text = buildAlertText(alarm.name);
+    await notifyActiveTab(
+      { type: "SPEAK_ALERT", payload: { text, volume } },
+      "Time alert",
+      text,
+    );
     return;
   }
 
@@ -516,6 +615,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       }
 
       await chrome.alarms.clear(ALARM_NAME);
+      await clearTimeAwarenessAlarms();
 
       const pausedAt = now();
       const remainingMs = Math.max(0, s.currentBlockEndsAt - pausedAt);
@@ -586,6 +686,13 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
         titleForBlock(s.currentIndex, s.plan.blocks.length, block)
       );
 
+      // Reschedule time awareness alerts with correct active elapsed time
+      const totalPauseDuration = newPauses.reduce(
+        (sum, p) => sum + (p.resumedAt - p.pausedAt), 0,
+      );
+      const activeElapsed = resumedAt - s.currentBlockStartedAt - totalPauseDuration;
+      scheduleTimeAwarenessAlerts(s.plan, s.currentIndex, activeElapsed);
+
       sendResponse({ ok: true });
       return;
     }
@@ -598,6 +705,7 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
       }
 
       await chrome.alarms.clear(ALARM_NAME);
+      await clearTimeAwarenessAlarms();
 
       const stoppedAt = now();
       let currentPauses: PauseRecord[];
@@ -728,6 +836,9 @@ chrome.runtime.onMessage.addListener((msg: unknown, _sender, sendResponse) => {
         "Snooze active",
         titleForBlock(endedBlockIndex, s.plan.blocks.length, block)
       );
+
+      // Schedule time awareness for the snooze period (most won't apply for short snoozes)
+      scheduleTimeAwarenessAlerts(s.plan, endedBlockIndex, 0);
 
       sendResponse({ ok: true });
       return;

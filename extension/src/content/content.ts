@@ -60,6 +60,35 @@ async function startAudio(volume: number): Promise<void> {
   }
 }
 
+// ─── Speech synthesis (time awareness) ───────────────────────────────────────
+
+let cachedVoices: SpeechSynthesisVoice[] = [];
+if ("speechSynthesis" in window) {
+  cachedVoices = speechSynthesis.getVoices();
+  speechSynthesis.addEventListener("voiceschanged", () => {
+    cachedVoices = speechSynthesis.getVoices();
+  });
+}
+
+function speakAlert(text: string, volume: number): void {
+  if (!("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.volume = Math.min(1, Math.max(0, volume / 100));
+  utterance.rate = 0.95;
+
+  // Prefer a natural-sounding English voice
+  const preferred =
+    cachedVoices.find(
+      (v) => v.name.includes("Google") && v.lang.startsWith("en"),
+    ) ??
+    cachedVoices.find((v) => v.lang.startsWith("en") && !v.localService);
+  if (preferred) utterance.voice = preferred;
+
+  speechSynthesis.speak(utterance);
+}
+
 // ─── Overlay helpers ──────────────────────────────────────────────────────────
 
 function ensureOverlayRoot() {
@@ -470,6 +499,11 @@ chrome.runtime.onMessage.addListener((msg: Msg) => {
 
   if (msg.type === "HIDE_FEEDBACK_MODAL") {
     closeModal();
+    return;
+  }
+
+  if (msg.type === "SPEAK_ALERT") {
+    speakAlert(msg.payload.text, msg.payload.volume);
     return;
   }
 });

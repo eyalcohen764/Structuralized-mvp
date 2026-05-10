@@ -8,10 +8,13 @@ import {
   Divider,
   Box,
   Slider,
+  Select,
+  MenuItem,
 } from "@mui/material";
 import HelpOutlineIcon from "@mui/icons-material/HelpOutline";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import type { BlockSettings, BlockType } from "../../../extension/src/shared";
+import { PRE_END_THRESHOLDS } from "../../../extension/src/shared";
 
 // ─── Audio preview ────────────────────────────────────────────────────────────
 
@@ -26,13 +29,34 @@ function playPreview(volume: number) {
     if (_previewAudio) { _previewAudio.pause(); _previewAudio.currentTime = 0; }
     const audio = new Audio("/audio/remembering-these-places_E_minor.wav");
     const pct = Math.max(0, Math.min(1, volume / 100));
-    audio.volume = pct * pct; // quadratic curve matches modal slider perception
+    audio.volume = pct * pct;
     audio.play().catch(() => { /* autoplay may be blocked */ });
     _previewAudio = audio;
     _previewTimer = setTimeout(() => {
       audio.pause();
       audio.currentTime = 0;
     }, 2500);
+  }, 300);
+}
+
+// ─── Speech preview ───────────────────────────────────────────────────────────
+
+let _speechDebounce: ReturnType<typeof setTimeout> | null = null;
+
+function speakPreview(volume: number) {
+  if (_speechDebounce) clearTimeout(_speechDebounce);
+  _speechDebounce = setTimeout(() => {
+    if (!("speechSynthesis" in window)) return;
+    speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance("15 minutes remaining.");
+    utterance.volume = Math.min(1, Math.max(0, volume / 100));
+    utterance.rate = 0.95;
+    const voices = speechSynthesis.getVoices();
+    const preferred =
+      voices.find((v) => v.name.includes("Google") && v.lang.startsWith("en")) ??
+      voices.find((v) => v.lang.startsWith("en") && !v.localService);
+    if (preferred) utterance.voice = preferred;
+    speechSynthesis.speak(utterance);
   }, 300);
 }
 
@@ -56,6 +80,8 @@ type SettingRowProps = {
   helpText: string;
   overridden?: boolean;
   onReset?: () => void;
+  disabled?: boolean;
+  disabledTooltip?: string;
   children: React.ReactNode;
 };
 
@@ -64,14 +90,16 @@ function SettingRow({
   helpText,
   overridden,
   onReset,
+  disabled,
+  disabledTooltip,
   children,
 }: SettingRowProps) {
-  return (
+  const row = (
     <Stack
       direction="row"
       alignItems="center"
       spacing={1}
-      sx={{ minHeight: 36 }}
+      sx={{ minHeight: 36, opacity: disabled ? 0.45 : 1 }}
     >
       <Stack direction="row" alignItems="center" sx={{ minWidth: 0, flex: 1 }}>
         <Typography
@@ -101,6 +129,44 @@ function SettingRow({
       </Stack>
     </Stack>
   );
+
+  if (disabled && disabledTooltip) {
+    return (
+      <Tooltip title={disabledTooltip} placement="top">
+        <Box>{row}</Box>
+      </Tooltip>
+    );
+  }
+  return row;
+}
+
+function SectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography
+      variant="caption"
+      sx={{ fontWeight: 800, color: "text.disabled", letterSpacing: "0.06em" }}
+    >
+      {children}
+    </Typography>
+  );
+}
+
+function SubSectionHeader({ children }: { children: React.ReactNode }) {
+  return (
+    <Typography
+      variant="caption"
+      sx={{
+        fontWeight: 700,
+        color: "text.disabled",
+        letterSpacing: "0.04em",
+        mt: 1,
+        mb: 0.25,
+        display: "block",
+      }}
+    >
+      {children}
+    </Typography>
+  );
 }
 
 // ─── Main component ───────────────────────────────────────────────────────────
@@ -118,6 +184,7 @@ type BlockSettingsPanelProps = {
     value: BlockSettings[keyof BlockSettings] | undefined,
   ) => void;
   blockType?: BlockType;
+  blockMinutes?: number;
 };
 
 export default function BlockSettingsPanel({
@@ -128,6 +195,7 @@ export default function BlockSettingsPanel({
   localOverrides,
   onOverrideChange,
   blockType,
+  blockMinutes,
 }: BlockSettingsPanelProps) {
   const isOverridden = (field: keyof BlockSettings) =>
     scope === "per-block" &&
@@ -152,24 +220,85 @@ export default function BlockSettingsPanel({
 
   const showWorkSection = blockType !== "break";
   const showBreakSection = blockType !== "work" && blockType !== "dynamic";
-  // In global scope, always show all sections
   const showWork = scope === "global" ? true : showWorkSection;
   const showBreak = scope === "global" ? true : showBreakSection;
 
+  const quarterDisabled =
+    scope === "per-block" && blockMinutes !== undefined && blockMinutes < 10;
+
+  // For per-block context, only show thresholds that the block is long enough for
+  const availableThresholds =
+    scope === "per-block" && blockMinutes !== undefined
+      ? PRE_END_THRESHOLDS.filter((t) => blockMinutes > t)
+      : [...PRE_END_THRESHOLDS];
+
+  const switchSx = (field: keyof BlockSettings) =>
+    isOverridden(field)
+      ? {
+          "& .MuiSwitch-thumb": { bgcolor: "warning.main" },
+          "& .MuiSwitch-track": { bgcolor: "warning.light" },
+        }
+      : undefined;
+
+  const numberFieldSx = (field: keyof BlockSettings) => ({
+    width: 70,
+    "& .MuiOutlinedInput-root": isOverridden(field)
+      ? { "& fieldset": { borderColor: "warning.main" } }
+      : {},
+  });
+
+  const selectSx = (field: keyof BlockSettings) => ({
+    width: 140,
+    ...(isOverridden(field)
+      ? { "& .MuiOutlinedInput-notchedOutline": { borderColor: "warning.main" } }
+      : {}),
+  });
+
+  // Pre-end select row for a given field + available thresholds
+  function PreEndSelect({
+    field,
+    label,
+    helpText,
+  }: {
+    field: "preEndFrom" | "breakPreEndFrom";
+    label: string;
+    helpText: string;
+  }) {
+    const value = (settings[field] as number) ?? 0;
+    const noOptions = availableThresholds.length === 0;
+
+    return (
+      <SettingRow
+        label={label}
+        helpText={helpText}
+        overridden={isOverridden(field)}
+        onReset={() => handleReset(field)}
+        disabled={noOptions && scope === "per-block"}
+        disabledTooltip="No thresholds available for this block duration"
+      >
+        <Select
+          size="small"
+          value={noOptions ? 0 : value}
+          disabled={readOnly || (noOptions && scope === "per-block")}
+          onChange={(e) => handleChange(field, Number(e.target.value))}
+          sx={selectSx(field)}
+        >
+          <MenuItem value={0}>Off</MenuItem>
+          {availableThresholds.map((t) => (
+            <MenuItem key={t} value={t}>
+              {t} min before
+            </MenuItem>
+          ))}
+        </Select>
+      </SettingRow>
+    );
+  }
+
   return (
     <Stack spacing={1.5} sx={{ p: scope === "global" ? 0 : 1 }}>
-      {/* Reflection */}
+      {/* ── Reflection ── */}
       <Box>
-        <Typography
-          variant="caption"
-          sx={{
-            fontWeight: 800,
-            color: "text.disabled",
-            letterSpacing: "0.06em",
-          }}
-        >
-          REFLECTION
-        </Typography>
+        <SectionHeader>REFLECTION</SectionHeader>
         {showWork && (
           <SettingRow
             label="Require reflection (Work / Dynamic)"
@@ -182,14 +311,7 @@ export default function BlockSettingsPanel({
               checked={settings.inputRequired ?? false}
               disabled={readOnly}
               onChange={(e) => handleChange("inputRequired", e.target.checked)}
-              sx={
-                isOverridden("inputRequired")
-                  ? {
-                      "& .MuiSwitch-thumb": { bgcolor: "warning.main" },
-                      "& .MuiSwitch-track": { bgcolor: "warning.light" },
-                    }
-                  : {}
-              }
+              sx={switchSx("inputRequired")}
             />
           </SettingRow>
         )}
@@ -204,35 +326,23 @@ export default function BlockSettingsPanel({
               size="small"
               checked={settings.breakInputRequired ?? false}
               disabled={readOnly}
-              onChange={(e) => handleChange("breakInputRequired", e.target.checked)}
-              sx={
-                isOverridden("breakInputRequired")
-                  ? {
-                      "& .MuiSwitch-thumb": { bgcolor: "warning.main" },
-                      "& .MuiSwitch-track": { bgcolor: "warning.light" },
-                    }
-                  : {}
+              onChange={(e) =>
+                handleChange("breakInputRequired", e.target.checked)
               }
+              sx={switchSx("breakInputRequired")}
             />
           </SettingRow>
         )}
       </Box>
 
-      {/* Work / Dynamic Block Snoozes */}
+      {/* ── Work / Dynamic Settings ── */}
       {showWork && (
         <>
           <Divider />
           <Box>
-            <Typography
-              variant="caption"
-              sx={{
-                fontWeight: 800,
-                color: "text.disabled",
-                letterSpacing: "0.06em",
-              }}
-            >
-              WORK / DYNAMIC SNOOZES
-            </Typography>
+            <SectionHeader>WORK / DYNAMIC SETTINGS</SectionHeader>
+
+            {/* Snoozes */}
             <Stack spacing={0.5} sx={{ mt: 0.5 }}>
               <SettingRow
                 label="Max snoozes"
@@ -249,12 +359,7 @@ export default function BlockSettingsPanel({
                   }
                   inputProps={{ min: 0, max: 10, step: 1 }}
                   size="small"
-                  sx={{
-                    width: 70,
-                    "& .MuiOutlinedInput-root": isOverridden("endMaxCount")
-                      ? { "& fieldset": { borderColor: "warning.main" } }
-                      : {},
-                  }}
+                  sx={numberFieldSx("endMaxCount")}
                 />
               </SettingRow>
               <SettingRow
@@ -272,36 +377,61 @@ export default function BlockSettingsPanel({
                   }
                   inputProps={{ min: 1, max: 120, step: 1 }}
                   size="small"
-                  sx={{
-                    width: 70,
-                    "& .MuiOutlinedInput-root": isOverridden(
-                      "endSnoozeMaxMinutes",
-                    )
-                      ? { "& fieldset": { borderColor: "warning.main" } }
-                      : {},
-                  }}
+                  sx={numberFieldSx("endSnoozeMaxMinutes")}
                 />
               </SettingRow>
+            </Stack>
+
+            {/* Time Awareness */}
+            <SubSectionHeader>Time Awareness</SubSectionHeader>
+            <Stack spacing={0.5}>
+              <Box>
+                <SettingRow
+                  label="Quarter-milestone alerts"
+                  helpText="Spoken alerts at 25%, 50%, and 75% of the block's elapsed duration, announcing the milestone and current time"
+                  overridden={isOverridden("quarterAlerts")}
+                  onReset={() => handleReset("quarterAlerts")}
+                  disabled={quarterDisabled}
+                  disabledTooltip="Requires blocks of at least 10 minutes"
+                >
+                  <Switch
+                    size="small"
+                    checked={settings.quarterAlerts ?? false}
+                    disabled={readOnly || quarterDisabled}
+                    onChange={(e) =>
+                      handleChange("quarterAlerts", e.target.checked)
+                    }
+                    sx={switchSx("quarterAlerts")}
+                  />
+                </SettingRow>
+                {scope === "global" && (
+                  <Typography
+                    variant="caption"
+                    sx={{ color: "text.disabled", pl: 0.5, display: "block", lineHeight: 1.4 }}
+                  >
+                    Only applies to blocks of 10 minutes or longer
+                  </Typography>
+                )}
+              </Box>
+
+              <PreEndSelect
+                field="preEndFrom"
+                label="Ring every 5 min starting from"
+                helpText="Spoken alert every 5 minutes starting from this many minutes before the block ends (Off = disabled)"
+              />
             </Stack>
           </Box>
         </>
       )}
 
-      {/* Break Extensions */}
+      {/* ── Break Settings ── */}
       {showBreak && (
         <>
           <Divider />
           <Box>
-            <Typography
-              variant="caption"
-              sx={{
-                fontWeight: 800,
-                color: "text.disabled",
-                letterSpacing: "0.06em",
-              }}
-            >
-              BREAK SNOOZES
-            </Typography>
+            <SectionHeader>BREAK SETTINGS</SectionHeader>
+
+            {/* Snoozes */}
             <Stack spacing={0.5} sx={{ mt: 0.5 }}>
               <SettingRow
                 label="Max break snoozes"
@@ -318,12 +448,7 @@ export default function BlockSettingsPanel({
                   }
                   inputProps={{ min: 0, max: 10, step: 1 }}
                   size="small"
-                  sx={{
-                    width: 70,
-                    "& .MuiOutlinedInput-root": isOverridden("returnMaxCount")
-                      ? { "& fieldset": { borderColor: "warning.main" } }
-                      : {},
-                  }}
+                  sx={numberFieldSx("returnMaxCount")}
                 />
               </SettingRow>
               <SettingRow
@@ -344,34 +469,57 @@ export default function BlockSettingsPanel({
                   }
                   inputProps={{ min: 1, max: 120, step: 1 }}
                   size="small"
-                  sx={{
-                    width: 70,
-                    "& .MuiOutlinedInput-root": isOverridden(
-                      "returnSnoozeMaxMinutes",
-                    )
-                      ? { "& fieldset": { borderColor: "warning.main" } }
-                      : {},
-                  }}
+                  sx={numberFieldSx("returnSnoozeMaxMinutes")}
                 />
               </SettingRow>
+            </Stack>
+
+            {/* Time Awareness */}
+            <SubSectionHeader>Time Awareness</SubSectionHeader>
+            <Stack spacing={0.5}>
+              <Box>
+                <SettingRow
+                  label="Quarter-milestone alerts"
+                  helpText="Spoken alerts at 25%, 50%, and 75% of the break's elapsed duration, announcing the milestone and current time"
+                  overridden={isOverridden("breakQuarterAlerts")}
+                  onReset={() => handleReset("breakQuarterAlerts")}
+                  disabled={quarterDisabled}
+                  disabledTooltip="Requires blocks of at least 10 minutes"
+                >
+                  <Switch
+                    size="small"
+                    checked={settings.breakQuarterAlerts ?? false}
+                    disabled={readOnly || quarterDisabled}
+                    onChange={(e) =>
+                      handleChange("breakQuarterAlerts", e.target.checked)
+                    }
+                    sx={switchSx("breakQuarterAlerts")}
+                  />
+                </SettingRow>
+                {scope === "global" && (
+                  <Typography
+                    variant="caption"
+                    sx={{ color: "text.disabled", pl: 0.5, display: "block", lineHeight: 1.4 }}
+                  >
+                    Only applies to blocks of 10 minutes or longer
+                  </Typography>
+                )}
+              </Box>
+
+              <PreEndSelect
+                field="breakPreEndFrom"
+                label="Ring every 5 min starting from"
+                helpText="Spoken alert every 5 minutes starting from this many minutes before the break ends (Off = disabled)"
+              />
             </Stack>
           </Box>
         </>
       )}
 
-      {/* Sound */}
+      {/* ── Sound ── */}
       <Divider />
       <Box>
-        <Typography
-          variant="caption"
-          sx={{
-            fontWeight: 800,
-            color: "text.disabled",
-            letterSpacing: "0.06em",
-          }}
-        >
-          SOUND
-        </Typography>
+        <SectionHeader>SOUND</SectionHeader>
         <Stack spacing={0.5} sx={{ mt: 0.5 }}>
           <SettingRow
             label="Alert volume"
@@ -379,7 +527,12 @@ export default function BlockSettingsPanel({
             overridden={isOverridden("alertVolume")}
             onReset={() => handleReset("alertVolume")}
           >
-            <Stack direction="row" alignItems="center" spacing={1} sx={{ width: 130 }}>
+            <Stack
+              direction="row"
+              alignItems="center"
+              spacing={1}
+              sx={{ width: 130 }}
+            >
               <Slider
                 size="small"
                 value={settings.alertVolume ?? 80}
@@ -407,6 +560,50 @@ export default function BlockSettingsPanel({
           </SettingRow>
         </Stack>
       </Box>
+
+      {/* ── Time Awareness Volume (global only) ── */}
+      {scope === "global" && (
+        <>
+          <Divider />
+          <Box>
+            <SectionHeader>TIME AWARENESS VOLUME</SectionHeader>
+            <Stack spacing={0.5} sx={{ mt: 0.5 }}>
+              <SettingRow
+                label="Speech volume"
+                helpText='Volume of the spoken time awareness alerts. Drag to hear a preview ("15 minutes remaining.").'
+                overridden={false}
+              >
+                <Stack
+                  direction="row"
+                  alignItems="center"
+                  spacing={1}
+                  sx={{ width: 130 }}
+                >
+                  <Slider
+                    size="small"
+                    value={settings.timeAwarenessVolume ?? 70}
+                    min={0}
+                    max={100}
+                    step={5}
+                    disabled={readOnly}
+                    onChange={(_, v) => {
+                      handleChange("timeAwarenessVolume", v as number);
+                      speakPreview(v as number);
+                    }}
+                    sx={{ flex: 1 }}
+                  />
+                  <Typography
+                    variant="caption"
+                    sx={{ minWidth: 32, textAlign: "right", color: "text.secondary" }}
+                  >
+                    {settings.timeAwarenessVolume ?? 70}%
+                  </Typography>
+                </Stack>
+              </SettingRow>
+            </Stack>
+          </Box>
+        </>
+      )}
     </Stack>
   );
 }

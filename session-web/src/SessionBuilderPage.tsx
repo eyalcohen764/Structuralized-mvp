@@ -849,6 +849,7 @@ export default function App() {
               }}
               localOverrides={settingsBlock.localSettings ?? {}}
               blockType={settingsBlock.type}
+              blockMinutes={settingsBlock.minutes}
               onOverrideChange={(field, value) => {
                 const current = { ...(settingsBlock.localSettings ?? {}) };
                 if (value === undefined) {

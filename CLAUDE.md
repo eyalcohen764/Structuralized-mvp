@@ -74,6 +74,9 @@ VITE_CLOUDINARY_UPLOAD_PRESET=
 - `SNOOZE_BLOCK { minutes }` — snoozes the current block end by N minutes
 - `HIDE_FEEDBACK_MODAL` — dismisses the feedback modal without submitting
 
+**Background → Content Script (time awareness)**:
+- `SPEAK_ALERT { text, volume }` — triggers Web Speech API in the content script to speak a time awareness message (quarter-milestone or pre-end countdown)
+
 ### Key Files
 
 - **`extension/src/shared.ts`** — Single source of truth: all message types (`Msg`), `SessionRuntimeState` discriminated union, `SessionPlan`, `SessionBlock`, `BlockSettings`, `ReportBlock`, `SessionReport`, `PauseRecord`, `SnoozeRecord`, storage keys, and `resolveSettings()` (merges `DEFAULT_BLOCK_SETTINGS` → `globalSettings` → `localSettings`). Touch this first when changing data contracts.
@@ -91,6 +94,8 @@ VITE_CLOUDINARY_UPLOAD_PRESET=
 - **`session-web/src/reportStorage.ts`** — Cloud persistence: uploads `SessionReport` JSON to Cloudinary, saves metadata (`cloudinaryUrl`, timestamps, `blockCount`) to Firestore under `users/{uid}/reports/{runId}`. Idempotent — skips re-upload if already saved.
 - **`session-web/src/extensionState.ts`** — Thin helper that calls `GET_STATE` and returns the session `status` string; used by `SessionGateway` to poll every 4 s.
 - **`session-web/src/config.ts`** — Extension ID resolution: auto-detect via postMessage → localStorage → hardcoded default.
+- **`session-web/src/topicStorage.ts`** — Firestore CRUD for saved work topics at `users/{uid}/savedTopics`. Used by `SessionBuilderPage` to provide topic autocomplete with optimistic updates.
+- **`session-web/src/components/TopicAutocomplete.tsx`** — Autocomplete input for work block topics; renders saved topics with save/delete controls inline.
 
 ### Extension Build
 
@@ -128,6 +133,9 @@ idle → running → awaiting_feedback → completed
 - `latest_report_runId_v3` — runId of the most recent completed session
 - `app_origin_v3` — website origin for opening the report tab
 
+**Website (localStorage)**:
+- `session_plan_v1` — last-built `SessionPlan` draft, written by `SessionBuilderPage` on Start; cleared on reset
+
 **Website (cloud)** — after a session completes the website uploads the report to two services:
 - **Cloudinary** — stores the full `SessionReport` as a raw JSON file at `reports/{uid}/{runId}.json`; returns a `secure_url`
 - **Firestore** — stores lightweight metadata in `users/{uid}/reports/{runId}` (the Cloudinary URL + timestamps + `blockCount`); used as an index so the report can be fetched without re-downloading the full JSON
@@ -145,12 +153,19 @@ idle → running → awaiting_feedback → completed
 - `endMaxCount` / `endSnoozeMaxMinutes` — snooze limit when block ends
 - `returnMaxCount` / `returnSnoozeMaxMinutes` — snooze limit on return prompts
 - `alertVolume` (0–100) — volume of the audio alert at block transitions
+- `quarterAlerts` / `breakQuarterAlerts` — spoken alerts at 25%, 50%, 75% elapsed (work/dynamic and break respectively); requires blocks ≥ 10 min
+- `preEndFrom` / `breakPreEndFrom` — ring every 5 min starting from this many minutes before the block ends (`0` = off); valid values are `PRE_END_THRESHOLDS` = `[30, 25, 20, 15, 10, 5]`
+- `timeAwarenessVolume` (0–100) — volume for spoken time-awareness alerts (global-only, not overridable per-block)
+
+Time awareness alarms use the prefix `TA_ALARM_PREFIX` (`"ta_"`) to distinguish from the main session alarm.
 
 `SessionBlock` has `id`, `type`, `minutes`, `topic?`, `goals?`, and `localSettings?: Partial<BlockSettings>`.
 
 ### Report Data Model
 
 `ReportBlock` has `startedAt`, `endedAt` (actual wall-clock), `minutes` (planned), `topic?`, `goals?`, `reflection?`, `pauses?: PauseRecord[]`, `snoozes?: SnoozeRecord[]`, and `plannedSettings?: BlockSettings`. `PauseRecord` holds `pausedAt`, `resumedAt`, `reason?`. `SnoozeRecord` holds `snoozedAt`, `resumedAt`, `minutes`. `SessionReport` has `endedEarly?: boolean` for stopped sessions.
+
+`PendingSnooze` (`{ snoozedAt, minutes }`) is the in-flight snooze stored in runtime state (no `resumedAt` yet); it becomes a `SnoozeRecord` once the snooze expires and the timer resumes.
 
 ## Conventions
 
