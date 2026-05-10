@@ -96,13 +96,17 @@ VITE_CLOUDINARY_UPLOAD_PRESET=
 - **`session-web/src/config.ts`** — Extension ID resolution: auto-detect via postMessage → localStorage → hardcoded default.
 - **`session-web/src/topicStorage.ts`** — Firestore CRUD for saved work topics at `users/{uid}/savedTopics`. Used by `SessionBuilderPage` to provide topic autocomplete with optimistic updates.
 - **`session-web/src/components/TopicAutocomplete.tsx`** — Autocomplete input for work block topics; renders saved topics with save/delete controls inline.
+- **`session-web/src/firebase.ts`** — Firebase initialization: exports `auth`, `db`, `googleProvider`, and `analytics`. Reads all config from `VITE_FIREBASE_*` env vars.
 
 ### Extension Build
 
-Vite builds three separate entry points (configured in `extension/vite.config.ts`):
+Vite builds three separate entry points (configured in `extension/vite.config.ts`).
+> **Note:** `extension/vite.config.ts` currently imports both the React and Vue Vite plugins — the Vue import appears unintentional. Do not add Vue dependencies; the extension is React-only.
 - `background.ts` → `background.js` (service worker)
 - `content.ts` → `content.js` (content script, injected on demand via `chrome.scripting`)
 - `src/runner/index.html` → popup HTML page (React app)
+
+`extension/src/pages/Report.tsx` is an unused stub (not wired into any Vite entry point); ignore it.
 
 ### Session State Machine
 
