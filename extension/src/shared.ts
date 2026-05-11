@@ -1,3 +1,7 @@
+/**
+ * shared.ts — Single source of truth for the entire project: exports all shared types (Msg union, SessionRuntimeState, SessionPlan, BlockSettings, ReportBlock, SessionReport), storage key constants, and resolveSettings() which merges default → global → per-block settings.
+ * Imported by the background service worker, content script, extension popup, and the session-web website.
+ */
 export type BlockType = "work" | "break" | "dynamic";
 
 export const DEFAULT_APP_ORIGIN = "http://localhost:5173";

@@ -1,3 +1,6 @@
+/**
+ * runner.tsx — Extension popup React app that displays the current session state and exposes Pause, Resume, and Stop controls with inline confirmation flows.
+ */
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {

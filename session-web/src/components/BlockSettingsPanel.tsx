@@ -1,3 +1,6 @@
+/**
+ * BlockSettingsPanel.tsx — Reusable settings panel for configuring a BlockSettings object (reflection requirements, snooze limits, alert volume, time-awareness alerts); used both globally and per individual block in SessionBuilderPage.
+ */
 import {
   Stack,
   Typography,
@@ -166,6 +169,7 @@ function SubSectionHeader({ children }: { children: React.ReactNode }) {
       variant="caption"
       sx={{
         fontWeight: 700,
+        fontSize: "0.90rem",
         color: "text.disabled",
         letterSpacing: "0.04em",
         mt: 1,
@@ -175,6 +179,65 @@ function SubSectionHeader({ children }: { children: React.ReactNode }) {
     >
       {children}
     </Typography>
+  );
+}
+
+// ─── PreEndSelect ─────────────────────────────────────────────────────────────
+
+type PreEndSelectProps = {
+  field: "preEndFrom" | "breakPreEndFrom";
+  label: string;
+  helpText: string;
+  settings: BlockSettings;
+  availableThresholds: number[];
+  readOnly: boolean;
+  scope: "global" | "per-block";
+  isOverridden: (field: keyof BlockSettings) => boolean;
+  onReset: (field: keyof BlockSettings) => void;
+  onChange: (field: keyof BlockSettings, value: BlockSettings[keyof BlockSettings]) => void;
+  selectSx: (field: keyof BlockSettings) => Record<string, unknown>;
+};
+
+function PreEndSelect({
+  field,
+  label,
+  helpText,
+  settings,
+  availableThresholds,
+  readOnly,
+  scope,
+  isOverridden,
+  onReset,
+  onChange,
+  selectSx,
+}: PreEndSelectProps) {
+  const value = (settings[field] as number) ?? 0;
+  const noOptions = availableThresholds.length === 0;
+
+  return (
+    <SettingRow
+      label={label}
+      helpText={helpText}
+      overridden={isOverridden(field)}
+      onReset={() => onReset(field)}
+      disabled={noOptions && scope === "per-block"}
+      disabledTooltip="No thresholds available for this block duration"
+    >
+      <Select
+        size="small"
+        value={noOptions ? 0 : value}
+        disabled={readOnly || (noOptions && scope === "per-block")}
+        onChange={(e) => onChange(field, Number(e.target.value))}
+        sx={selectSx(field)}
+      >
+        <MenuItem value={0}>Off</MenuItem>
+        {availableThresholds.map((t) => (
+          <MenuItem key={t} value={t}>
+            {t} min before
+          </MenuItem>
+        ))}
+      </Select>
+    </SettingRow>
   );
 }
 
@@ -264,46 +327,6 @@ export default function BlockSettingsPanel({
         }
       : {}),
   });
-
-  // Pre-end select row for a given field + available thresholds
-  function PreEndSelect({
-    field,
-    label,
-    helpText,
-  }: {
-    field: "preEndFrom" | "breakPreEndFrom";
-    label: string;
-    helpText: string;
-  }) {
-    const value = (settings[field] as number) ?? 0;
-    const noOptions = availableThresholds.length === 0;
-
-    return (
-      <SettingRow
-        label={label}
-        helpText={helpText}
-        overridden={isOverridden(field)}
-        onReset={() => handleReset(field)}
-        disabled={noOptions && scope === "per-block"}
-        disabledTooltip="No thresholds available for this block duration"
-      >
-        <Select
-          size="small"
-          value={noOptions ? 0 : value}
-          disabled={readOnly || (noOptions && scope === "per-block")}
-          onChange={(e) => handleChange(field, Number(e.target.value))}
-          sx={selectSx(field)}
-        >
-          <MenuItem value={0}>Off</MenuItem>
-          {availableThresholds.map((t) => (
-            <MenuItem key={t} value={t}>
-              {t} min before
-            </MenuItem>
-          ))}
-        </Select>
-      </SettingRow>
-    );
-  }
 
   return (
     <Stack spacing={1.5} sx={{ p: scope === "global" ? 0 : 1 }}>
@@ -436,6 +459,14 @@ export default function BlockSettingsPanel({
                 field="preEndFrom"
                 label="Ring every 5 min starting from"
                 helpText="Spoken alert every 5 minutes starting from this many minutes before the block ends (Off = disabled)"
+                settings={settings}
+                availableThresholds={availableThresholds}
+                readOnly={readOnly}
+                scope={scope}
+                isOverridden={isOverridden}
+                onReset={handleReset}
+                onChange={handleChange}
+                selectSx={selectSx}
               />
             </Stack>
           </Box>
@@ -533,6 +564,14 @@ export default function BlockSettingsPanel({
                 field="breakPreEndFrom"
                 label="Ring every 5 min starting from"
                 helpText="Spoken alert every 5 minutes starting from this many minutes before the break ends (Off = disabled)"
+                settings={settings}
+                availableThresholds={availableThresholds}
+                readOnly={readOnly}
+                scope={scope}
+                isOverridden={isOverridden}
+                onReset={handleReset}
+                onChange={handleChange}
+                selectSx={selectSx}
               />
             </Stack>
           </Box>

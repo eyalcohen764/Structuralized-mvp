@@ -1,3 +1,6 @@
+/**
+ * firebase.ts — Initializes the Firebase app from VITE_FIREBASE_* environment variables and exports auth, db (Firestore), googleProvider, and analytics for use across the session-web app.
+ */
 import { initializeApp } from "firebase/app";
 import { getAnalytics } from "firebase/analytics";
 import { getAuth, GoogleAuthProvider } from "firebase/auth";

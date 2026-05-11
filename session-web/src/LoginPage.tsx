@@ -1,3 +1,6 @@
+/**
+ * LoginPage.tsx — Google sign-in page backed by Firebase Auth; redirects already-authenticated users to the home page and shows a loading state while sign-in is in progress.
+ */
 import { useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import {

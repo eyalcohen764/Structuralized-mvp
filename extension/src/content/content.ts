@@ -1,3 +1,6 @@
+/**
+ * content.ts — Content script injected into active tabs that renders the running-block overlay and the end-of-block reflection modal using raw DOM (no React) to avoid style conflicts with the host page.
+ */
 import type { BlockType, Msg } from "../shared";
 
 const OVERLAY_ID = "session-ext-overlay-root";

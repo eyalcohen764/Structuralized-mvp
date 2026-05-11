@@ -1,3 +1,6 @@
+/**
+ * reportStorage.ts — Persists completed session reports by uploading the full SessionReport JSON to Cloudinary and saving lightweight metadata (URL, timestamps, blockCount) to Firestore under users/{uid}/reports/{runId}; idempotent — skips re-upload if the report already exists.
+ */
 import {
   doc,
   getDoc,

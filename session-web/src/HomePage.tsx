@@ -1,3 +1,6 @@
+/**
+ * HomePage.tsx — Marketing/landing page shown to authenticated users; presents project information and navigation options to the session builder and archive.
+ */
 import { useNavigate } from "react-router-dom";
 import {
   Avatar,

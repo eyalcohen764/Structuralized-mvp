@@ -1,3 +1,6 @@
+/**
+ * topicStorage.ts — Firestore CRUD helpers for saved work topics stored at users/{uid}/savedTopics; used by SessionBuilderPage to populate topic autocomplete with optimistic updates.
+ */
 import {
   doc,
   setDoc,

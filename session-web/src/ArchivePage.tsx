@@ -1,3 +1,6 @@
+/**
+ * ArchivePage.tsx — Lists saved session reports from Firestore with search/filter, inline rename, delete confirmation, and expand-to-preview; uses ReportCard for each entry.
+ */
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,

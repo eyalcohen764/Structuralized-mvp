@@ -1,3 +1,6 @@
+/**
+ * TopicAutocomplete.tsx — Autocomplete input for work block topics that renders saved topics with inline save and delete controls, backed by topicStorage for Firestore persistence.
+ */
 import { type SyntheticEvent } from "react";
 import {
   Autocomplete,

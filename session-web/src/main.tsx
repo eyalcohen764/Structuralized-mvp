@@ -1,3 +1,6 @@
+/**
+ * main.tsx — React entry point for the session-web app; mounts the root React tree with BrowserRouter and AuthProvider wrapping the App component.
+ */
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { BrowserRouter } from "react-router-dom";

@@ -1,3 +1,6 @@
+/**
+ * ActiveSessionPage.tsx — Displayed during an active session; polls the extension state every 4 seconds and renders the appropriate UI for running, paused, or awaiting-feedback states.
+ */
 import { useEffect, useState } from "react";
 import { Box, Typography, Chip } from "@mui/material";
 import PauseCircleIcon from "@mui/icons-material/PauseCircle";

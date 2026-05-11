@@ -1,3 +1,6 @@
+/**
+ * App.tsx — Defines all React Router routes for the session-web app (login, home, builder, active session, report, archive) and wraps protected routes in RequireAuth.
+ */
 import { useState, useEffect } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import { Box, CircularProgress, Typography } from "@mui/material";

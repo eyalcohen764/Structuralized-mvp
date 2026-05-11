@@ -1,3 +1,6 @@
+/**
+ * ReportCard.tsx — Reusable card component used in ArchivePage for each saved report; supports inline rename, delete confirmation, and a link to the full ReportPage.
+ */
 import { useState } from "react";
 import {
   Paper,

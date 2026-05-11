@@ -1,3 +1,8 @@
+/**
+ * config.ts — Resolves the Chrome Extension ID needed for chrome.runtime.sendMessage calls, using a priority chain of auto-detect via postMessage (SESSION_BLOCKS_GET_ID), localStorage override (set via the gear icon dialog), and a hardcoded development fallback.
+ * Exports getExtensionIdAsync(), setExtensionId(), and the static EXTENSION_ID constant.
+ */
+
 const DEFAULT_EXTENSION_ID = "hkknllffnpnbhcjbolepkkhppjapjief";
 const STORAGE_KEY = "session_ext_id_v1";
 

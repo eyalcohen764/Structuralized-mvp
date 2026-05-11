@@ -1,3 +1,6 @@
+/**
+ * background.ts — MV3 service worker that drives the session state machine: schedules Chrome alarms, routes messages between the website, popup, and content script, and persists completed SessionReports to chrome.storage.local.
+ */
 import {
   ALARM_NAME,
   APP_ORIGIN_KEY,
@@ -20,9 +23,11 @@ import {
   type StartSessionExternalMsg,
 } from "../shared";
 
+/** Persists the current session state to chrome.storage.local. */
 async function setState(state: SessionRuntimeState) {
   await chrome.storage.local.set({ [STORAGE_KEY]: state });
 }
+/** Reads the current session state from chrome.storage.local; returns idle if not set. */
 async function getState(): Promise<SessionRuntimeState> {
   const res = await chrome.storage.local.get(STORAGE_KEY);
   return (res[STORAGE_KEY] as SessionRuntimeState) ?? { status: "idle" };
@@ -30,16 +35,20 @@ async function getState(): Promise<SessionRuntimeState> {
 
 const NOTIF_CLEAR_ALARM_PREFIX = "clear_notif_";
 
+/** Converts minutes to milliseconds, with a minimum of one minute. */
 function msFromMinutes(min: number) {
   return Math.max(1, Math.floor(min)) * 60_000;
 }
+/** Returns the current time as epoch milliseconds. */
 function now() {
   return Date.now();
 }
+/** Generates a unique UUID run ID for each new session. */
 function newRunId() {
   return crypto.randomUUID();
 }
 
+/** Sends a message to a tab; if the content script is not yet loaded, injects it first then sends. */
 async function sendOrInject(tabId: number, msg: Msg) {
   try {
     await chrome.tabs.sendMessage(tabId, msg);
@@ -53,6 +62,7 @@ async function sendOrInject(tabId: number, msg: Msg) {
   }
 }
 
+/** Creates a Chrome notification that auto-clears after ttlMs milliseconds. */
 async function createEphemeralNotification(
   title: string,
   message: string,
@@ -69,6 +79,7 @@ async function createEphemeralNotification(
   return id;
 }
 
+/** Returns true for URLs where content script injection is forbidden (chrome://, Web Store, etc.). */
 function isRestrictedUrl(url: string): boolean {
   return (
     url.startsWith("chrome://") ||
@@ -77,6 +88,7 @@ function isRestrictedUrl(url: string): boolean {
   );
 }
 
+/** Sends a message to the active tab of the current window; falls back to a Chrome notification if the tab is restricted or unavailable. */
 async function notifyActiveTab(msg: Msg, fallbackTitle: string, fallbackBody: string) {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
 
@@ -127,6 +139,7 @@ async function notifyAllWindowsFeedbackModal(
   }
 }
 
+/** Sends HIDE_FEEDBACK_MODAL to every open tab to dismiss the feedback modal everywhere. */
 async function hideFeedbackModalAllTabs() {
   const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
@@ -139,6 +152,7 @@ async function hideFeedbackModalAllTabs() {
   }
 }
 
+/** Opens a new tab to the web report page for the given runId. */
 async function openWebReportPage(runId: string) {
   const { [APP_ORIGIN_KEY]: origin } = await chrome.storage.local.get(APP_ORIGIN_KEY);
   const base = (origin as string) || "http://localhost:5173";
@@ -146,6 +160,7 @@ async function openWebReportPage(runId: string) {
   await chrome.tabs.create({ url });
 }
 
+/** Builds the UI title string for a block, including its number, type, and topic. */
 function titleForBlock(index: number, total: number, b: { type: string; topic?: string }) {
   const base = `Block ${index + 1}/${total}`;
   if (b.type === "work") return `${base} · Work${b.topic ? `: ${b.topic}` : ""}`;
@@ -153,6 +168,7 @@ function titleForBlock(index: number, total: number, b: { type: string; topic?: 
   return `${base} · Dynamic${b.topic ? `: ${b.topic}` : ""}`;
 }
 
+/** Creates an empty SessionReport at the start of a new session. */
 function ensureReport(plan: SessionPlan, runId: string): SessionReport {
   return {
     runId,
@@ -163,6 +179,7 @@ function ensureReport(plan: SessionPlan, runId: string): SessionReport {
   };
 }
 
+/** Closes all pending snoozes into SnoozeRecords with resumedAt, then merges them with prior snooze history. */
 function finalizeSnoozes(
   currentSnoozes: PendingSnooze[],
   priorSnoozes: SnoozeRecord[] | undefined,
@@ -183,6 +200,7 @@ function finalizeSnoozes(
 
 // ─── Time awareness helpers ──────────────────────────────────────────────────
 
+/** Schedules spoken time-awareness alarms (quarter-milestones and pre-end countdowns) for the given block, accounting for already-elapsed active time. */
 function scheduleTimeAwarenessAlerts(
   plan: SessionPlan,
   blockIndex: number,
@@ -228,6 +246,7 @@ function scheduleTimeAwarenessAlerts(
   }
 }
 
+/** Cancels all pending time-awareness alarms (identified by the TA_ALARM_PREFIX). */
 async function clearTimeAwarenessAlarms(): Promise<void> {
   const alarms = await chrome.alarms.getAll();
   for (const a of alarms) {
@@ -237,6 +256,7 @@ async function clearTimeAwarenessAlarms(): Promise<void> {
   }
 }
 
+/** Builds the spoken alert text from an alarm name, including the current clock time. */
 function buildAlertText(alarmName: string): string {
   const clockTime = new Date().toLocaleTimeString([], {
     hour: "numeric",
@@ -258,6 +278,7 @@ function buildAlertText(alarmName: string): string {
   return `Time check. The time is ${clockTime}.`;
 }
 
+/** Transitions to the running state for the given block index: persists state, creates the alarm, shows the overlay, and schedules time-awareness alerts. */
 async function startBlock(
   runId: string,
   origin: string | undefined,
@@ -929,6 +950,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   await setState({ status: "idle" });
 });
 
+/** Re-shows the feedback modal on a newly activated tab if the session is currently awaiting feedback. */
 async function showFeedbackOnActiveTab(tabId: number) {
   const s = await getState();
   if (s.status !== "awaiting_feedback") return;

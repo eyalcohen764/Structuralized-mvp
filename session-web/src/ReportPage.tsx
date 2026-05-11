@@ -1,3 +1,6 @@
+/**
+ * ReportPage.tsx — Displays a completed SessionReport with a planned-vs-actual block comparison, pause segment breakdown per block, and markers for blocks that were stopped early.
+ */
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Container,

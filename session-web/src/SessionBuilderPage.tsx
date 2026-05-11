@@ -1,3 +1,6 @@
+/**
+ * SessionBuilderPage.tsx — Main session creation UI that lets users compose a block list, configure global settings, manage saved templates, and see live clock estimates before starting a session.
+ */
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AppBar,
@@ -438,7 +441,7 @@ export default function App() {
     };
 
     const extId = await getExtensionIdAsync();
-    chrome.runtime.sendMessage(extId, msg, (_res) => {
+    chrome.runtime.sendMessage(extId, msg, (_) => {
       const errMsg = chrome.runtime.lastError?.message;
       if (errMsg) {
         const isConnectionError =

@@ -1,3 +1,6 @@
+/**
+ * templateStorage.ts — Firestore CRUD helpers for session templates stored at users/{uid}/sessionTemplates; exports sanitizeBlocks() to strip undefined fields from SessionBlock objects before writing to Firestore.
+ */
 import {
   doc,
   setDoc,
