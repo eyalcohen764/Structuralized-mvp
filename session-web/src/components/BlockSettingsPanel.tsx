@@ -313,7 +313,7 @@ export default function BlockSettingsPanel({
         {showWork && (
           <SettingRow
             label="Require reflection (Work / Dynamic)"
-            helpText="Forces user to type something before proceeding after a work or dynamic block"
+            helpText="Forces user to quickly document what they actually did during the work/dynamic block before proceeding to the next block"
             overridden={isOverridden("inputRequired")}
             onReset={() => handleReset("inputRequired")}
           >
@@ -329,7 +329,7 @@ export default function BlockSettingsPanel({
         {showBreak && (
           <SettingRow
             label="Require reflection (Break)"
-            helpText="Forces user to type something before proceeding after a break block"
+            helpText="Forces user to quickly document what they actually did during the beark block before proceeding to the next block"
             overridden={isOverridden("breakInputRequired")}
             onReset={() => handleReset("breakInputRequired")}
           >
