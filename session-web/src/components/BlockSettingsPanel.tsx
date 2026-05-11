@@ -25,12 +25,20 @@ let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
 function playPreview(volume: number) {
   if (_debounceTimer) clearTimeout(_debounceTimer);
   _debounceTimer = setTimeout(() => {
-    if (_previewTimer) { clearTimeout(_previewTimer); _previewTimer = null; }
-    if (_previewAudio) { _previewAudio.pause(); _previewAudio.currentTime = 0; }
+    if (_previewTimer) {
+      clearTimeout(_previewTimer);
+      _previewTimer = null;
+    }
+    if (_previewAudio) {
+      _previewAudio.pause();
+      _previewAudio.currentTime = 0;
+    }
     const audio = new Audio("/audio/remembering-these-places_E_minor.wav");
     const pct = Math.max(0, Math.min(1, volume / 100));
     audio.volume = pct * pct;
-    audio.play().catch(() => { /* autoplay may be blocked */ });
+    audio.play().catch(() => {
+      /* autoplay may be blocked */
+    });
     _previewAudio = audio;
     _previewTimer = setTimeout(() => {
       audio.pause();
@@ -53,8 +61,9 @@ function speakPreview(volume: number) {
     utterance.rate = 0.95;
     const voices = speechSynthesis.getVoices();
     const preferred =
-      voices.find((v) => v.name.includes("Google") && v.lang.startsWith("en")) ??
-      voices.find((v) => v.lang.startsWith("en") && !v.localService);
+      voices.find(
+        (v) => v.name.includes("Google") && v.lang.startsWith("en"),
+      ) ?? voices.find((v) => v.lang.startsWith("en") && !v.localService);
     if (preferred) utterance.voice = preferred;
     speechSynthesis.speak(utterance);
   }, 300);
@@ -250,7 +259,9 @@ export default function BlockSettingsPanel({
   const selectSx = (field: keyof BlockSettings) => ({
     width: 140,
     ...(isOverridden(field)
-      ? { "& .MuiOutlinedInput-notchedOutline": { borderColor: "warning.main" } }
+      ? {
+          "& .MuiOutlinedInput-notchedOutline": { borderColor: "warning.main" },
+        }
       : {}),
   });
 
@@ -383,7 +394,9 @@ export default function BlockSettingsPanel({
             </Stack>
 
             {/* Time Awareness */}
-            <SubSectionHeader>Time Awareness</SubSectionHeader>
+            <SubSectionHeader>
+              Time Awareness for Work / Dynamic Blocks
+            </SubSectionHeader>
             <Stack spacing={0.5}>
               <Box>
                 <SettingRow
@@ -407,7 +420,12 @@ export default function BlockSettingsPanel({
                 {scope === "global" && (
                   <Typography
                     variant="caption"
-                    sx={{ color: "text.disabled", pl: 0.5, display: "block", lineHeight: 1.4 }}
+                    sx={{
+                      color: "text.disabled",
+                      pl: 0.5,
+                      display: "block",
+                      lineHeight: 1.4,
+                    }}
                   >
                     Only applies to blocks of 10 minutes or longer
                   </Typography>
@@ -475,7 +493,7 @@ export default function BlockSettingsPanel({
             </Stack>
 
             {/* Time Awareness */}
-            <SubSectionHeader>Time Awareness</SubSectionHeader>
+            <SubSectionHeader>Time Awareness Of Break Blocks</SubSectionHeader>
             <Stack spacing={0.5}>
               <Box>
                 <SettingRow
@@ -499,7 +517,12 @@ export default function BlockSettingsPanel({
                 {scope === "global" && (
                   <Typography
                     variant="caption"
-                    sx={{ color: "text.disabled", pl: 0.5, display: "block", lineHeight: 1.4 }}
+                    sx={{
+                      color: "text.disabled",
+                      pl: 0.5,
+                      display: "block",
+                      lineHeight: 1.4,
+                    }}
                   >
                     Only applies to blocks of 10 minutes or longer
                   </Typography>
@@ -519,7 +542,7 @@ export default function BlockSettingsPanel({
       {/* ── Sound ── */}
       <Divider />
       <Box>
-        <SectionHeader>SOUND</SectionHeader>
+        <SectionHeader>SOUND </SectionHeader>
         <Stack spacing={0.5} sx={{ mt: 0.5 }}>
           <SettingRow
             label="Alert volume"
@@ -552,7 +575,11 @@ export default function BlockSettingsPanel({
               />
               <Typography
                 variant="caption"
-                sx={{ minWidth: 32, textAlign: "right", color: "text.secondary" }}
+                sx={{
+                  minWidth: 32,
+                  textAlign: "right",
+                  color: "text.secondary",
+                }}
               >
                 {settings.alertVolume ?? 80}%
               </Typography>
@@ -594,7 +621,11 @@ export default function BlockSettingsPanel({
                   />
                   <Typography
                     variant="caption"
-                    sx={{ minWidth: 32, textAlign: "right", color: "text.secondary" }}
+                    sx={{
+                      minWidth: 32,
+                      textAlign: "right",
+                      color: "text.secondary",
+                    }}
                   >
                     {settings.timeAwarenessVolume ?? 70}%
                   </Typography>

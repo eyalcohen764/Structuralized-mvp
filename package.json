@@ -1,0 +1,10 @@
+{
+  "name": "structuralized-mvp",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently --names \"web,ext\" --prefix-colors \"cyan,yellow\" \"npm run dev --prefix session-web\" \"npm run build:watch --prefix extension\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}
