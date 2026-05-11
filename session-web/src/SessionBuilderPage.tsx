@@ -441,7 +441,7 @@ export default function App() {
     };
 
     const extId = await getExtensionIdAsync();
-    chrome.runtime.sendMessage(extId, msg, (_) => {
+    chrome.runtime.sendMessage(extId, msg, () => {
       const errMsg = chrome.runtime.lastError?.message;
       if (errMsg) {
         const isConnectionError =
