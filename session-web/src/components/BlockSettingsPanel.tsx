@@ -545,7 +545,7 @@ export default function BlockSettingsPanel({
         <SectionHeader>SOUND </SectionHeader>
         <Stack spacing={0.5} sx={{ mt: 0.5 }}>
           <SettingRow
-            label="Alert volume"
+            label="Block Transitions sound volume"
             helpText="Volume of the alert sound that plays at block transitions (0 = silent). Drag to hear a preview."
             overridden={isOverridden("alertVolume")}
             onReset={() => handleReset("alertVolume")}

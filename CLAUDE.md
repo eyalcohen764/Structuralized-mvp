@@ -95,6 +95,7 @@ VITE_CLOUDINARY_UPLOAD_PRESET=
 - **`session-web/src/extensionState.ts`** — Thin helper that calls `GET_STATE` and returns the session `status` string; used by `SessionGateway` to poll every 4 s.
 - **`session-web/src/config.ts`** — Extension ID resolution: auto-detect via postMessage → localStorage → hardcoded default.
 - **`session-web/src/topicStorage.ts`** — Firestore CRUD for saved work topics at `users/{uid}/savedTopics`. Used by `SessionBuilderPage` to provide topic autocomplete with optimistic updates.
+- **`session-web/src/templateStorage.ts`** — Firestore CRUD for session templates at `users/{uid}/sessionTemplates`. Stores `SessionTemplate` (name, blocks, globalSettings, timestamps). Includes `sanitizeBlocks()` to strip `undefined` fields before writing — see Firestore gotcha below.
 - **`session-web/src/components/TopicAutocomplete.tsx`** — Autocomplete input for work block topics; renders saved topics with save/delete controls inline.
 - **`session-web/src/firebase.ts`** — Firebase initialization: exports `auth`, `db`, `googleProvider`, and `analytics`. Reads all config from `VITE_FIREBASE_*` env vars.
 
@@ -139,6 +140,15 @@ idle → running → awaiting_feedback → completed
 
 **Website (localStorage)**:
 - `session_plan_v1` — last-built `SessionPlan` draft, written by `SessionBuilderPage` on Start; cleared on reset
+
+**Firestore collections** (all under `users/{uid}/`):
+- `reports/{runId}` — `ReportRecord` metadata (Cloudinary URL + timestamps)
+- `savedTopics/{topicId}` — `SavedTopic` (name, createdAt)
+- `sessionTemplates/{templateId}` — `SessionTemplate` (name, blocks, globalSettings, timestamps)
+
+> **Firestore rules**: Every new collection requires an explicit `allow read, write` rule in the Firebase Console → Firestore → Rules. Adding a collection in code without updating the rules causes `Missing or insufficient permissions` errors at runtime.
+
+> **Firestore `undefined` gotcha**: Firestore rejects documents containing `undefined` values anywhere in nested objects. `SessionBlock` has optional fields (`topic?`, `goals?`, `localSettings?`) that are `undefined` on break/dynamic blocks — always strip them before writing. See `sanitizeBlocks()` in `templateStorage.ts` for the pattern.
 
 **Website (cloud)** — after a session completes the website uploads the report to two services:
 - **Cloudinary** — stores the full `SessionReport` as a raw JSON file at `reports/{uid}/{runId}.json`; returns a `secure_url`

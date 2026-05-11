@@ -23,8 +23,14 @@ import {
   Dialog,
   DialogTitle,
   DialogContent,
+  DialogContentText,
   DialogActions,
   Box,
+  List,
+  ListItem,
+  ListItemText,
+  ListItemSecondaryAction,
+  CircularProgress,
 } from "@mui/material";
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlineIcon from "@mui/icons-material/DeleteOutline";
@@ -34,6 +40,11 @@ import PlayArrowIcon from "@mui/icons-material/PlayArrow";
 import RestartAltIcon from "@mui/icons-material/RestartAlt";
 import SettingsIcon from "@mui/icons-material/Settings";
 import TuneIcon from "@mui/icons-material/Tune";
+import BookmarksIcon from "@mui/icons-material/Bookmarks";
+import BookmarkAddIcon from "@mui/icons-material/BookmarkAdd";
+import EditIcon from "@mui/icons-material/Edit";
+import CheckIcon from "@mui/icons-material/Check";
+import CloseIcon from "@mui/icons-material/Close";
 import {
   DEFAULT_BLOCK_SETTINGS,
   type BlockSettings,
@@ -52,6 +63,13 @@ import {
   type SavedTopic,
 } from "./topicStorage";
 import { getExtensionId, getExtensionIdAsync, setExtensionId } from "./config";
+import {
+  listSessionTemplates,
+  createSessionTemplate,
+  updateSessionTemplate,
+  deleteSessionTemplate,
+  type SessionTemplate,
+} from "./templateStorage";
 
 function canTalkToExtension(): boolean {
   return typeof chrome !== "undefined" && !!chrome.runtime?.sendMessage;
@@ -131,6 +149,21 @@ export default function App() {
   const [savedTopics, setSavedTopics] = useState<SavedTopic[]>([]);
   const [topicsLoading, setTopicsLoading] = useState(true);
 
+  // ── Templates state ──────────────────────────────────────────────────────
+  const [templates, setTemplates] = useState<SessionTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [templatesOpen, setTemplatesOpen] = useState(false);
+  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false);
+  const [templateName, setTemplateName] = useState("");
+  const [savingTemplate, setSavingTemplate] = useState(false);
+  const [overwriteTarget, setOverwriteTarget] = useState<SessionTemplate | null>(null);
+  const [templateDeleteTarget, setTemplateDeleteTarget] = useState<string | null>(null);
+  const [deletingTemplate, setDeletingTemplate] = useState(false);
+  const [loadConfirmTarget, setLoadConfirmTarget] = useState<SessionTemplate | null>(null);
+  /** templateId → pending rename value, or null when not editing */
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
   useEffect(() => {
     if (!user) return;
     let cancelled = false;
@@ -142,6 +175,23 @@ export default function App() {
       .catch(console.error)
       .finally(() => {
         if (!cancelled) setTopicsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    let cancelled = false;
+    setTemplatesLoading(true);
+    listSessionTemplates(user.uid)
+      .then((list) => {
+        if (!cancelled) setTemplates(list);
+      })
+      .catch(() => setToast({ kind: "error", msg: "Failed to load templates" }))
+      .finally(() => {
+        if (!cancelled) setTemplatesLoading(false);
       });
     return () => {
       cancelled = true;
@@ -228,6 +278,106 @@ export default function App() {
     },
     [user],
   );
+
+  // ── Template handlers ────────────────────────────────────────────────────
+
+  function openSaveTemplateDialog() {
+    setTemplateName("");
+    setOverwriteTarget(null);
+    setSaveTemplateOpen(true);
+  }
+
+  async function handleSaveTemplate() {
+    const name = templateName.trim();
+    if (!name || !user) return;
+    setSavingTemplate(true);
+    try {
+      if (overwriteTarget) {
+        await updateSessionTemplate(user.uid, overwriteTarget.id, {
+          name,
+          blocks,
+          globalSettings,
+        });
+        setTemplates((prev) =>
+          prev
+            .map((t) =>
+              t.id === overwriteTarget.id
+                ? { ...t, name, blocks, globalSettings }
+                : t,
+            )
+            .sort((a, b) => a.name.localeCompare(b.name)),
+        );
+        setToast({ kind: "success", msg: `Template "${name}" updated.` });
+      } else {
+        const saved = await createSessionTemplate(
+          user.uid,
+          name,
+          blocks,
+          globalSettings,
+        );
+        setTemplates((prev) =>
+          [...prev, saved].sort((a, b) => a.name.localeCompare(b.name)),
+        );
+        setToast({ kind: "success", msg: `Template "${name}" saved.` });
+      }
+      setSaveTemplateOpen(false);
+    } catch (e) {
+      console.error("[templates] save failed:", e);
+      setToast({ kind: "error", msg: "Failed to save template. Try again." });
+    } finally {
+      setSavingTemplate(false);
+    }
+  }
+
+  function handleLoadTemplate(template: SessionTemplate) {
+    if (blocks.length > 0) {
+      setLoadConfirmTarget(template);
+    } else {
+      applyTemplate(template);
+    }
+  }
+
+  function applyTemplate(template: SessionTemplate) {
+    setBlocks(template.blocks);
+    setGlobalSettings(template.globalSettings);
+    setLoadConfirmTarget(null);
+    setTemplatesOpen(false);
+    setToast({ kind: "success", msg: `Loaded template "${template.name}".` });
+  }
+
+  async function handleRenameTemplate() {
+    const name = renameValue.trim();
+    if (!name || !renamingId || !user) return;
+    try {
+      await updateSessionTemplate(user.uid, renamingId, { name });
+      setTemplates((prev) =>
+        prev
+          .map((t) => (t.id === renamingId ? { ...t, name } : t))
+          .sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setToast({ kind: "success", msg: "Template renamed." });
+    } catch {
+      setToast({ kind: "error", msg: "Failed to rename. Try again." });
+    } finally {
+      setRenamingId(null);
+      setRenameValue("");
+    }
+  }
+
+  async function handleDeleteTemplateConfirm() {
+    if (!templateDeleteTarget || !user) return;
+    setDeletingTemplate(true);
+    try {
+      await deleteSessionTemplate(user.uid, templateDeleteTarget);
+      setTemplates((prev) => prev.filter((t) => t.id !== templateDeleteTarget));
+      setToast({ kind: "success", msg: "Template deleted." });
+    } catch {
+      setToast({ kind: "error", msg: "Failed to delete. Try again." });
+    } finally {
+      setDeletingTemplate(false);
+      setTemplateDeleteTarget(null);
+    }
+  }
 
   function validatePlan(): string | null {
     if (blocks.length === 0) return "Add at least one block.";
@@ -367,6 +517,16 @@ export default function App() {
             >
               How to use the system
             </Button>
+            <Tooltip title="Browse & load templates">
+              <IconButton onClick={() => setTemplatesOpen(true)}>
+                <BookmarksIcon />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title="Save current plan as template">
+              <IconButton onClick={openSaveTemplateDialog}>
+                <BookmarkAddIcon />
+              </IconButton>
+            </Tooltip>
             <Tooltip title="Extension ID (from chrome://extensions)">
               <IconButton
                 onClick={() => {
@@ -918,6 +1078,325 @@ export default function App() {
             }}
           >
             Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Browse Templates dialog ───────────────────────────────────────── */}
+      <Dialog
+        open={templatesOpen}
+        onClose={() => {
+          setTemplatesOpen(false);
+          setRenamingId(null);
+          setRenameValue("");
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Session Templates</DialogTitle>
+        <DialogContent dividers sx={{ p: 0 }}>
+          {templatesLoading ? (
+            <Box sx={{ display: "flex", justifyContent: "center", py: 4 }}>
+              <CircularProgress size={28} />
+            </Box>
+          ) : templates.length === 0 ? (
+            <Box sx={{ py: 4, textAlign: "center" }}>
+              <Typography variant="body2" color="text.secondary">
+                No templates yet. Build a plan and save it as a template.
+              </Typography>
+            </Box>
+          ) : (
+            <List disablePadding>
+              {templates.map((t, idx) => {
+                const totalMins = t.blocks.reduce(
+                  (sum, b) => sum + (b.minutes || 0),
+                  0,
+                );
+                const isRenaming = renamingId === t.id;
+                return (
+                  <Box key={t.id}>
+                    {idx > 0 && <Divider />}
+                    <ListItem
+                      alignItems="flex-start"
+                      sx={{ py: 1.5, pr: isRenaming ? 1 : 14 }}
+                    >
+                      {isRenaming ? (
+                        <Stack
+                          direction="row"
+                          spacing={1}
+                          alignItems="center"
+                          sx={{ flex: 1 }}
+                        >
+                          <TextField
+                            size="small"
+                            value={renameValue}
+                            onChange={(e) => setRenameValue(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") void handleRenameTemplate();
+                              if (e.key === "Escape") {
+                                setRenamingId(null);
+                                setRenameValue("");
+                              }
+                            }}
+                            autoFocus
+                            sx={{ flex: 1 }}
+                          />
+                          <Tooltip title="Save rename">
+                            <IconButton
+                              size="small"
+                              onClick={() => void handleRenameTemplate()}
+                            >
+                              <CheckIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Cancel">
+                            <IconButton
+                              size="small"
+                              onClick={() => {
+                                setRenamingId(null);
+                                setRenameValue("");
+                              }}
+                            >
+                              <CloseIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      ) : (
+                        <ListItemText
+                          primary={t.name}
+                          secondary={
+                            <Stack
+                              component="span"
+                              direction="row"
+                              spacing={0.75}
+                              sx={{ mt: 0.5 }}
+                            >
+                              <Chip
+                                label={`${t.blocks.length} block${t.blocks.length !== 1 ? "s" : ""}`}
+                                size="small"
+                                variant="outlined"
+                              />
+                              <Chip
+                                label={formatTotal(totalMins)}
+                                size="small"
+                                variant="outlined"
+                              />
+                            </Stack>
+                          }
+                        />
+                      )}
+                      {!isRenaming && (
+                        <ListItemSecondaryAction>
+                          <Stack direction="row" spacing={0.5}>
+                            <Tooltip title="Load template">
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                sx={{ textTransform: "none", minWidth: 0 }}
+                                onClick={() => handleLoadTemplate(t)}
+                              >
+                                Load
+                              </Button>
+                            </Tooltip>
+                            <Tooltip title="Rename">
+                              <IconButton
+                                size="small"
+                                onClick={() => {
+                                  setRenamingId(t.id);
+                                  setRenameValue(t.name);
+                                }}
+                              >
+                                <EditIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete">
+                              <IconButton
+                                size="small"
+                                onClick={() => setTemplateDeleteTarget(t.id)}
+                              >
+                                <DeleteOutlineIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
+                        </ListItemSecondaryAction>
+                      )}
+                    </ListItem>
+                  </Box>
+                );
+              })}
+            </List>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setTemplatesOpen(false);
+              setRenamingId(null);
+              setRenameValue("");
+            }}
+          >
+            Close
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Load-template confirmation (non-empty builder) ────────────────── */}
+      <Dialog
+        open={loadConfirmTarget !== null}
+        onClose={() => setLoadConfirmTarget(null)}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Replace current plan?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            Loading &ldquo;{loadConfirmTarget?.name}&rdquo; will replace your
+            current blocks and settings. This cannot be undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLoadConfirmTarget(null)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={() => {
+              if (loadConfirmTarget) applyTemplate(loadConfirmTarget);
+            }}
+          >
+            Load Template
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Save as Template dialog ───────────────────────────────────────── */}
+      <Dialog
+        open={saveTemplateOpen}
+        onClose={() => {
+          if (!savingTemplate) {
+            setSaveTemplateOpen(false);
+            setOverwriteTarget(null);
+          }
+        }}
+        maxWidth="sm"
+        fullWidth
+      >
+        <DialogTitle>Save as Template</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 0.5 }}>
+            <TextField
+              fullWidth
+              label="Template name"
+              value={templateName}
+              onChange={(e) => setTemplateName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleSaveTemplate();
+              }}
+              autoFocus
+              disabled={savingTemplate}
+            />
+            {templates.length > 0 && (
+              <Box>
+                <Typography
+                  variant="caption"
+                  color="text.secondary"
+                  sx={{ display: "block", mb: 1 }}
+                >
+                  Or overwrite an existing template:
+                </Typography>
+                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                  {templates.map((t) => (
+                    <Chip
+                      key={t.id}
+                      label={t.name}
+                      size="small"
+                      variant={overwriteTarget?.id === t.id ? "filled" : "outlined"}
+                      color={overwriteTarget?.id === t.id ? "warning" : "default"}
+                      onClick={() => {
+                        if (overwriteTarget?.id === t.id) {
+                          setOverwriteTarget(null);
+                          if (templateName === t.name) setTemplateName("");
+                        } else {
+                          setOverwriteTarget(t);
+                          setTemplateName(t.name);
+                        }
+                      }}
+                      disabled={savingTemplate}
+                      sx={{ cursor: "pointer" }}
+                    />
+                  ))}
+                </Stack>
+                {overwriteTarget && (
+                  <Typography
+                    variant="caption"
+                    color="warning.main"
+                    sx={{ display: "block", mt: 1 }}
+                  >
+                    This will overwrite &ldquo;{overwriteTarget.name}&rdquo;.
+                  </Typography>
+                )}
+              </Box>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => {
+              setSaveTemplateOpen(false);
+              setOverwriteTarget(null);
+            }}
+            disabled={savingTemplate}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSaveTemplate()}
+            disabled={!templateName.trim() || savingTemplate}
+            startIcon={
+              savingTemplate ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : undefined
+            }
+          >
+            {overwriteTarget ? "Overwrite" : "Save"}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* ── Delete Template confirmation ──────────────────────────────────── */}
+      <Dialog
+        open={templateDeleteTarget !== null}
+        onClose={() => {
+          if (!deletingTemplate) setTemplateDeleteTarget(null);
+        }}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle>Delete Template?</DialogTitle>
+        <DialogContent>
+          <DialogContentText>
+            This will permanently delete the template. This action cannot be
+            undone.
+          </DialogContentText>
+        </DialogContent>
+        <DialogActions>
+          <Button
+            onClick={() => setTemplateDeleteTarget(null)}
+            disabled={deletingTemplate}
+          >
+            Cancel
+          </Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={() => void handleDeleteTemplateConfirm()}
+            disabled={deletingTemplate}
+            startIcon={
+              deletingTemplate ? (
+                <CircularProgress size={16} color="inherit" />
+              ) : undefined
+            }
+          >
+            Delete
           </Button>
         </DialogActions>
       </Dialog>
